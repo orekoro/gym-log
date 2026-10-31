@@ -134,6 +134,8 @@ textarea:focus { border-color: var(--accent); }
 .sheet { max-height: 80vh; overflow-y: auto; }
 .pick-list { display: flex; flex-direction: column; gap: 8px; }
 .pick { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; text-align: left; padding: 12px 14px; background: var(--card2); font-size: 15px; }
+.save-btn { margin-top: 12px; background: transparent; color: var(--accent); border: 2px solid var(--accent); font-weight: 700; }
+.saved-icon { width: 56px; height: 56px; margin: 0 auto 10px; border-radius: 50%; background: var(--accent); color: var(--accent-ink); display: flex; align-items: center; justify-content: center; font-size: 30px; font-weight: 700; }
 .modal-bg { position: fixed; inset: 0; z-index: 30; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; padding: 24px; }
 .modal { background: var(--card); border: 1px solid var(--line); border-radius: 18px; padding: 20px; width: 100%; max-width: 360px; }
 .modal p { margin: 0 0 18px; font-size: 18px; font-weight: 600; text-wrap: balance; }
@@ -360,6 +362,29 @@ function askText(title, value, ok = "Save") {
     new MutationObserver((m, o) => { if (!sh.el.isConnected) { o.disconnect(); finish(null); } }).observe(document.body, { childList: true });
   });
 }
+function saveWorkout() {
+  closeOpen();
+  const w = workoutFor(logDate, false);
+  if (!w || !w.exercises.length) return render();
+  w.savedAt = Date.now(); save(); render();
+  const sets = w.exercises.reduce((t, e) => t + filledSets(e.sets).length, 0);
+  const vol = w.exercises.reduce((t, e) => t + filledSets(e.sets).reduce((a, x) => a + num(x.reps) * num(x.weight), 0), 0);
+  const beat = w.exercises.filter(e => {
+    const l = lastTime(e.name, w.date); if (!l) return false;
+    const top = xs => Math.max(0, ...filledSets(xs).map(x => num(x.weight)));
+    return top(e.sets) > top(l.e.sets);
+  }).map(e => e.name);
+  const sh = sheet(`<div class="saved-icon">✓</div><p style="text-align:center;margin-bottom:6px">Workout saved</p>
+    <div class="muted" style="text-align:center;margin-bottom:16px">${fmtDate(w.date)}${w.split ? ` · ${esc(w.split)}` : ""}</div>
+    <div class="chart-stats" style="margin-top:0">
+      <div><small>Exercises</small><b>${w.exercises.length}</b></div>
+      <div><small>Sets</small><b>${sets}</b></div>
+      <div><small>Volume</small><b>${fmtNum(vol)}</b> <span class="muted">kg</span></div>
+    </div>
+    ${beat.length ? `<div class="last" style="margin-top:14px"><b>Heavier than last time:</b> ${beat.map(esc).join(", ")}</div>` : ""}
+    <div class="row" style="margin-top:16px"><button class="wide" data-close>Close</button><button class="wide primary" id="see-history">See History</button></div>`);
+  sh.el.querySelector("#see-history").onclick = () => { sh.close(); tab = "history"; historyEx = null; render(); window.scrollTo(0, 0); };
+}
 function repeatPicker() {
   const list = db.workouts.filter(x => x.date !== logDate && x.exercises.length).sort((a, b) => b.date.localeCompare(a.date)).slice(0, 25);
   const sh = sheet(`<p>Repeat a past workout</p><div class="muted" style="font-size:14px;margin:-10px 0 12px">Copies its exercises and weights into ${logDate === today() ? "today" : fmtShort(logDate)}. Change anything after.</div>
@@ -469,6 +494,8 @@ function renderLog() {
         </div>`).join("")}
       ${openEx ? "" : `<button class="primary wide" id="add-ex">+ Exercise</button>`}
       ${openEx || !db.workouts.some(x => x.date !== logDate && x.exercises.length) ? "" : `<button class="wide" id="repeat" style="margin-top:10px">↻ Repeat a past workout</button>`}
+      ${exs.length && !openEx ? `<button class="save-btn wide" id="save-workout">${w.savedAt ? "✓ Saved" : "Save workout"}</button>
+        <div class="muted" style="font-size:13px;text-align:center;margin-top:6px">${w.savedAt ? `Saved to History at ${new Date(w.savedAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}` : "Your sets are kept as you type. Save when you’re done."}</div>` : ""}
       ${exs.length ? `<button class="ghost danger wide" id="del-workout" style="margin-top:20px">Delete this whole workout</button>` : ""}
     </main>`;
 
@@ -480,6 +507,8 @@ function renderLog() {
   splitIn.addEventListener("blur", () => { const x = workoutFor(logDate, false); if (x) { x.split = (x.split || "").trim().replace(/\s+/g, " "); save(); } });
   noteIn.addEventListener("input", () => { workoutFor(logDate, true).note = noteIn.value; save(); grow(); });
   app.querySelectorAll("[data-split]").forEach(b => b.onclick = () => { workoutFor(logDate, true).split = b.dataset.split; save(); render(); });
+  const sv = document.getElementById("save-workout");
+  if (sv) sv.onclick = saveWorkout;
   const rp = document.getElementById("repeat");
   if (rp) rp.onclick = repeatPicker;
   const addBtn = document.getElementById("add-ex");
