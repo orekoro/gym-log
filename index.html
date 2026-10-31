@@ -126,6 +126,18 @@ nav button.on { color: var(--accent); }
 .modal { background: var(--card); border: 1px solid var(--line); border-radius: 18px; padding: 20px; width: 100%; max-width: 360px; }
 .modal p { margin: 0 0 18px; font-size: 18px; font-weight: 600; text-wrap: balance; }
 .danger-fill { background: var(--danger); color: #2a0707; font-weight: 700; }
+.section-label { color: var(--muted); font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; margin: 4px 2px 8px; }
+.done-row {
+  width: 100%; display: flex; align-items: center; gap: 12px; text-align: left;
+  background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 12px 14px; margin-bottom: 8px; min-height: 64px;
+}
+.dr-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.dr-text b { font-size: 17px; }
+.dr-sets { color: var(--muted); font-size: 15px; font-variant-numeric: tabular-nums; }
+.dr-edit { color: var(--accent); font-size: 15px; font-weight: 600; }
+.open-card { border-color: var(--accent); }
+.open-card + .section-label, .done-row + .section-label { margin-top: 18px; }
 .toast {
   position: fixed; left: 50%; bottom: calc(96px + env(safe-area-inset-bottom)); transform: translateX(-50%);
   background: var(--accent); color: var(--accent-ink); font-weight: 700;
@@ -307,19 +319,47 @@ function lastHtml(name, date) {
   return `<div class="last"><b>Last time (${fmtShort(l.w.date)}):</b> ${filledSets(l.e.sets).map(fmtSet).join(" · ")}</div>`;
 }
 
+let openEx = null; // id of the exercise being edited on the Log screen
+function closeOpen() {
+  // close the open exercise; drop it if nothing was entered
+  const w = workoutFor(logDate, false);
+  if (w && openEx) {
+    const ex = w.exercises.find(x => x.id === openEx);
+    if (ex) {
+      ex.name = ex.name.trim().replace(/\s+/g, " ");
+      ex.sets = ex.sets.filter(s => s.reps !== "" || s.weight !== "");
+      if (!ex.name && !ex.sets.length) w.exercises = w.exercises.filter(x => x !== ex);
+      else if (!ex.sets.length) ex.sets.push({ reps: "", weight: "" });
+    }
+    save();
+  }
+  openEx = null;
+}
 function renderLog() {
   const w = workoutFor(logDate, false);
   const exs = w ? w.exercises : [];
+  if (openEx && !exs.some(e => e.id === openEx)) openEx = null;
+  const isToday = logDate === today();
+  const doneCount = exs.filter(e => e.id !== openEx).length;
   app.innerHTML = `
     <header>
-      <h1>Workout</h1>
+      <div><h1>${isToday ? "Today’s workout" : "Workout"}</h1>${isToday ? "" : `<div class="muted" style="font-size:15px">${fmtDate(logDate)}</div>`}</div>
       <input type="date" id="date" value="${logDate}" max="${today()}">
     </header>
     <main>
-      ${logDate !== today() ? `<p class="muted" style="margin-top:0">Logging for ${fmtDate(logDate)}</p>` : ""}
-      ${exs.length ? "" : `<div class="empty">No exercises yet.<br>Tap “+ Exercise” to start.</div>`}
-      ${exs.map((e, i) => `
-        <div class="card" data-ex="${e.id}">
+      ${exs.length ? "" : `<div class="empty">Nothing logged ${isToday ? "today" : "on this day"} yet.<br>Tap “+ Exercise” to start.</div>`}
+      ${doneCount ? `<div class="section-label">What you did · ${doneCount} exercise${doneCount > 1 ? "s" : ""}</div>` : ""}
+      ${exs.map(e => e.id !== openEx ? `
+        <button class="done-row" data-open="${e.id}">
+          <span class="dr-text">
+            <b>${esc(e.name || "Unnamed exercise")}</b>
+            <span class="dr-sets">${filledSets(e.sets).map(fmtSet).join(" · ") || "No sets yet"}</span>
+          </span>
+          <span class="dr-edit">Edit</span>
+        </button>` : "").join("")}
+      ${exs.filter(e => e.id === openEx).map(e => `
+        <div class="section-label">${e.name ? "Editing" : "New exercise"}</div>
+        <div class="card open-card" data-ex="${e.id}">
           <div class="ex-head">
             <input class="ex-name" placeholder="Exercise name" value="${esc(e.name)}" autocomplete="off" autocapitalize="words" ${!e.name ? "data-autofocus" : ""}>
             <button class="icon-btn" data-act="del-ex" aria-label="Delete exercise">🗑</button>
@@ -333,18 +373,24 @@ function renderLog() {
               <input inputmode="decimal" data-f="weight" value="${esc(s.weight)}" placeholder="BW">
               <button class="icon-btn" data-act="del-set" aria-label="Delete set">✕</button>
             </div>`).join("")}
-          <button class="wide" data-act="add-set">+ Set</button>
+          <div class="row"><button class="wide" data-act="add-set">+ Set</button><button class="wide primary" data-act="done">Done</button></div>
         </div>`).join("")}
-      <button class="primary wide" id="add-ex">+ Exercise</button>
+      ${openEx ? "" : `<button class="primary wide" id="add-ex">+ Exercise</button>`}
       ${exs.length ? `<button class="ghost danger wide" id="del-workout" style="margin-top:20px">Delete this whole workout</button>` : ""}
     </main>`;
 
-  document.getElementById("date").onchange = ev => { logDate = ev.target.value || today(); render(); };
-  document.getElementById("add-ex").onclick = () => {
-    workoutFor(logDate, true).exercises.push({ id: uid(), name: "", sets: [{ reps: "", weight: "" }] });
+  document.getElementById("date").onchange = ev => { closeOpen(); logDate = ev.target.value || today(); render(); };
+  const addBtn = document.getElementById("add-ex");
+  if (addBtn) addBtn.onclick = () => {
+    const ex = { id: uid(), name: "", sets: [{ reps: "", weight: "" }] };
+    workoutFor(logDate, true).exercises.push(ex); openEx = ex.id;
     save(); render();
     const el = app.querySelector("[data-autofocus]"); if (el) el.focus();
   };
+  app.querySelectorAll("[data-open]").forEach(b => b.onclick = () => {
+    closeOpen(); openEx = b.dataset.open; render();
+    const c = app.querySelector(".open-card"); if (c) c.scrollIntoView({ block: "center", behavior: "smooth" });
+  });
   const dw = document.getElementById("del-workout");
   if (dw) dw.onclick = async () => {
     if (!(await ask(`Delete the whole workout on ${fmtDate(logDate)}?`))) return;
@@ -387,6 +433,7 @@ function renderLog() {
         ex.sets.splice(j, 1); save(); render();
       };
     });
+    card.querySelector('[data-act="done"]').onclick = () => { closeOpen(); render(); window.scrollTo(0, 0); };
     card.querySelector('[data-act="add-set"]').onclick = () => {
       const prev = ex.sets[ex.sets.length - 1];
       ex.sets.push(prev ? { reps: prev.reps, weight: prev.weight } : { reps: "", weight: "" });
@@ -425,7 +472,7 @@ function renderHistory() {
     document.getElementById("back").onclick = () => { historyEx = null; render(); };
     app.querySelectorAll(".session").forEach(card => {
       const w = db.workouts.find(x => x.id === card.dataset.w);
-      card.querySelector('[data-act="edit"]').onclick = () => { logDate = w.date; tab = "log"; render(); window.scrollTo(0, 0); };
+      card.querySelector('[data-act="edit"]').onclick = () => { closeOpen(); logDate = w.date; openEx = card.dataset.e; tab = "log"; render(); window.scrollTo(0, 0); };
       card.querySelector('[data-act="del"]').onclick = async () => {
         if (!(await ask(`Delete ${title} from ${fmtDate(w.date)}?`))) return;
         w.exercises = w.exercises.filter(x => x.id !== card.dataset.e); save(); render();
@@ -508,6 +555,7 @@ function toast(msg) {
 }
 
 document.querySelectorAll("nav button").forEach(b => b.onclick = () => {
+  if (tab === "log") closeOpen();
   tab = b.dataset.tab; if (tab === "history") historyEx = null; if (tab === "log") logDate = logDate || today();
   render(); window.scrollTo(0, 0);
 });
