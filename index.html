@@ -173,6 +173,12 @@ textarea:focus { border-color: var(--accent); }
 .wk-ex { font-size: 14px; }
 .wk-note { font-size: 14px; color: var(--muted); font-style: italic; }
 .wk-ex-card { width: 100%; text-align: left; display: block; margin: 0; }
+.badge { border-radius: 999px; padding: 1px 8px; font-size: 12px; font-weight: 700; white-space: nowrap; }
+.badge.pr { background: #3a2c0a; color: #fbbf24; }
+.badge.up-b { background: #13261a; color: var(--accent); }
+.pr-box { background: #2a2208; color: #fde68a; } .pr-box b { color: #fbbf24; }
+.nag { width: 100%; text-align: left; background: #2a2208; color: #fde68a; border: 1px solid #5b4710; border-radius: 12px; font-size: 15px; padding: 10px 14px; min-height: 44px; margin-bottom: 14px; }
+.timer { color: var(--accent); font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; margin-top: 2px; }
 .modal-bg { position: fixed; inset: 0; z-index: 30; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; padding: 24px; }
 .modal { background: var(--card); border: 1px solid var(--line); border-radius: 18px; padding: 20px; width: 100%; max-width: 360px; }
 .modal p { margin: 0 0 18px; font-size: 18px; font-weight: 600; text-wrap: balance; }
@@ -386,6 +392,35 @@ function lastHtml(name, date) {
 }
 
 let openEx = null; // id of the exercise being edited on the Log screen
+const COMMON_SPLITS = ["Push", "Pull", "Legs", "Upper", "Lower", "Full body"];
+function splitChoices(current) {
+  const out = [], seen = new Set([norm(current)]);
+  pastSplits().concat(COMMON_SPLITS).forEach(x => { if (!seen.has(norm(x))) { seen.add(norm(x)); out.push(x); } });
+  return out.slice(0, 8);
+}
+const fmtDur = m => m >= 60 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${m} min`;
+function markStart() { const w = cur(false); if (w && !w.startedAt && !w.savedAt) { w.startedAt = Date.now(); } }
+// progress vs history for one exercise in workout w: {delta, pr, unit}
+function progressOf(e, w) {
+  const sets = filledSets(e.sets); if (!sets.length || !norm(e.name)) return null;
+  const prev = sessionsOf(norm(e.name)).filter(s => s.w !== w && s.w.date <= w.date && filledSets(s.e.sets).length);
+  if (!prev.length) return null;
+  const anyW = sets.some(x => num(x.weight) > 0) || prev.some(s => s.e.sets.some(x => num(x.weight) > 0));
+  const top = xs => Math.max(0, ...filledSets(xs).map(x => num(anyW ? x.weight : x.reps)));
+  const mine = top(e.sets), last = top(prev[0].e.sets), best = Math.max(...prev.map(s => top(s.e.sets)));
+  return { delta: mine - last, pr: mine > best, unit: anyW ? "kg" : "reps" };
+}
+function badgeHtml(e, w) {
+  const p = progressOf(e, w); if (!p) return "";
+  return `${p.pr ? `<span class="badge pr">🏆 PR</span>` : ""}${p.delta > 0 ? `<span class="badge up-b">▲ +${fmtNum(p.delta)} ${p.unit}</span>` : ""}`;
+}
+function backupNag() {
+  const n = db.workouts.filter(w => w.savedAt && w.exercises.length).length;
+  if (n < 3) return "";
+  const days = db.lastBackup ? Math.floor((Date.now() - db.lastBackup) / 864e5) : null;
+  if (days !== null && days < 14) return "";
+  return `<button class="nag" id="nag">💾 ${days === null ? "You haven’t backed up yet" : `Last backup ${days} days ago`} · <u>Back up now</u></button>`;
+}
 function pastSplits() {
   const seen = new Set(), out = [];
   [...db.workouts].sort((a, b) => b.date.localeCompare(a.date)).forEach(w => {
@@ -418,22 +453,21 @@ function saveWorkout() {
   const w = cur(false);
   if (!w || !w.exercises.length) return render();
   const wasEdit = !!editWid;
+  if (!wasEdit && w.startedAt) { const m = Math.round((Date.now() - w.startedAt) / 60000); if (m >= 1 && m <= 300) w.minutes = m; }
   w.savedAt = Date.now(); editWid = null; logDate = today(); save(); render();
   const sets = w.exercises.reduce((t, e) => t + filledSets(e.sets).length, 0);
   const vol = w.exercises.reduce((t, e) => t + filledSets(e.sets).reduce((a, x) => a + num(x.reps) * num(x.weight), 0), 0);
-  const beat = w.exercises.filter(e => {
-    const l = lastTime(e.name, w.date); if (!l) return false;
-    const top = xs => Math.max(0, ...filledSets(xs).map(x => num(x.weight)));
-    return top(e.sets) > top(l.e.sets);
-  }).map(e => e.name);
+  const prs = w.exercises.filter(e => (progressOf(e, w) || {}).pr).map(e => e.name);
+  const beat = w.exercises.filter(e => { const p = progressOf(e, w); return p && p.delta > 0 && !p.pr; }).map(e => e.name);
   const sh = sheet(`<div class="saved-icon">✓</div><p style="text-align:center;margin-bottom:6px">${wasEdit ? "Changes saved" : "Workout saved to History"}</p>
-    <div class="muted" style="text-align:center;margin-bottom:16px">${fmtDate(w.date)}${w.split ? ` · ${esc(w.split)}` : ""}</div>
+    <div class="muted" style="text-align:center;margin-bottom:16px">${fmtDate(w.date)}${w.split ? ` · ${esc(w.split)}` : ""}${w.minutes ? ` · ${fmtDur(w.minutes)}` : ""}</div>
     <div class="chart-stats" style="margin-top:0">
       <div><small>Exercises</small><b>${w.exercises.length}</b></div>
       <div><small>Sets</small><b>${sets}</b></div>
       <div><small>Volume</small><b>${fmtNum(vol)}</b> <span class="muted">kg</span></div>
     </div>
-    ${beat.length ? `<div class="last" style="margin-top:14px"><b>Heavier than last time:</b> ${beat.map(esc).join(", ")}</div>` : ""}
+    ${prs.length ? `<div class="last pr-box" style="margin-top:14px"><b>🏆 New PR:</b> ${prs.map(esc).join(", ")}</div>` : ""}
+    ${beat.length ? `<div class="last" style="margin-top:${prs.length ? 8 : 14}px"><b>Better than last time:</b> ${beat.map(esc).join(", ")}</div>` : ""}
     <div class="row" style="margin-top:16px"><button class="wide" data-close>Close</button><button class="wide primary" id="see-history">See History</button></div>`);
   sh.el.querySelector("#see-history").onclick = () => { sh.close(); tab = "history"; prefs.histView = "workouts"; savePrefs(); historyEx = null; historyW = w.id; render(); window.scrollTo(0, 0); };
 }
@@ -504,16 +538,17 @@ function renderLog() {
   const doneCount = exs.filter(e => e.id !== openEx).length;
   app.innerHTML = `
     <header>
-      <div><h1>${editWid ? "Edit workout" : isToday ? "Today’s workout" : "Workout"}</h1>${isToday && !editWid ? "" : `<div class="muted" style="font-size:15px">${fmtDate(logDate)}</div>`}</div>
+      <div><h1>${editWid ? "Edit workout" : isToday ? "Today’s workout" : "Workout"}</h1>${isToday && !editWid ? "" : `<div class="muted" style="font-size:15px">${fmtDate(logDate)}</div>`}${!editWid && w && w.startedAt ? `<div class="timer" id="timer">⏱ ${fmtDur(Math.max(0, Math.floor((Date.now() - w.startedAt) / 60000)))}</div>` : ""}</div>
       <input type="date" id="date" value="${logDate}" max="${today()}">
     </header>
     <main>
+      ${editWid ? "" : backupNag()}
       <div class="card day-card">
         <div class="day-row">
           <label class="day-label" for="split">Split</label>
           <input id="split" placeholder="Push, Legs, Upper…" value="${esc(w ? w.split || "" : "")}" autocomplete="off" autocapitalize="words">
         </div>
-        ${pastSplits().filter(x => norm(x) !== norm(w ? w.split : "")).length ? `<div class="chips split-chips">${pastSplits().filter(x => norm(x) !== norm(w ? w.split : "")).map(x => `<button class="chip-btn" data-split="${esc(x)}">${esc(x)}</button>`).join("")}</div>` : ""}
+        ${splitChoices(w ? w.split : "").length ? `<div class="chips split-chips">${splitChoices(w ? w.split : "").map(x => `<button class="chip-btn" data-split="${esc(x)}">${esc(x)}</button>`).join("")}</div>` : ""}
         <textarea id="note" rows="2" placeholder="Notes: how it felt, anything to remember">${esc(w ? w.note || "" : "")}</textarea>
       </div>
       ${exs.length ? "" : `<div class="empty" style="padding:24px 10px">No exercises yet.</div>`}
@@ -521,7 +556,7 @@ function renderLog() {
       ${exs.map(e => e.id !== openEx ? `
         <button class="done-row" data-open="${e.id}">
           <span class="dr-text">
-            <b>${esc(e.name || "Unnamed exercise")}</b>
+            <span class="pick-top"><b>${esc(e.name || "Unnamed exercise")}</b>${w ? badgeHtml(e, w) : ""}</span>
             <span class="dr-sets">${filledSets(e.sets).map(fmtSet).join(" · ") || "No sets yet"}</span>
           </span>
           <span class="dr-edit">Edit</span>
@@ -559,6 +594,8 @@ function renderLog() {
   splitIn.addEventListener("blur", () => { const x = cur(false); if (x) { x.split = (x.split || "").trim().replace(/\s+/g, " "); save(); } });
   noteIn.addEventListener("input", () => { cur(true).note = noteIn.value; save(); grow(); });
   app.querySelectorAll("[data-split]").forEach(b => b.onclick = () => { cur(true).split = b.dataset.split; save(); render(); });
+  const nag = document.getElementById("nag");
+  if (nag) nag.onclick = () => { tab = "backup"; render(); window.scrollTo(0, 0); };
   const sv = document.getElementById("save-workout");
   if (sv) sv.onclick = saveWorkout;
   const rp = document.getElementById("repeat");
@@ -608,7 +645,7 @@ function renderLog() {
     card.querySelectorAll(".set").forEach(row => {
       const j = +row.dataset.set;
       row.querySelectorAll("input").forEach(inp => inp.addEventListener("input", () => {
-        ex.sets[j][inp.dataset.f] = inp.value.replace(",", ".").trim(); save();
+        ex.sets[j][inp.dataset.f] = inp.value.replace(",", ".").trim(); markStart(); save();
       }));
       row.querySelector('[data-act="del-set"]').onclick = async () => {
         const s = ex.sets[j];
@@ -637,11 +674,11 @@ function renderHistory() {
       <header><button class="ghost" id="back" style="padding:0 6px">‹ Back</button><h2 style="flex:1">Workout</h2></header>
       <main class="stack">
         <div>
-          <div class="pick-top"><b style="font-size:20px">${fmtDate(w.date)}</b>${w.split ? `<span class="split-tag">${esc(w.split)}</span>` : ""}</div>
+          <div class="pick-top"><b style="font-size:20px">${fmtDate(w.date)}</b>${w.split ? `<span class="split-tag">${esc(w.split)}</span>` : ""}${w.minutes ? `<span class="muted">⏱ ${fmtDur(w.minutes)}</span>` : ""}</div>
           ${(w.note || "").trim() ? `<div class="card" style="margin:12px 0 0;white-space:pre-wrap">${esc(w.note.trim())}</div>` : ""}
         </div>
         ${w.exercises.map(e => `<button class="card session wk-ex-card" data-goex="${esc(norm(e.name))}">
-          <div class="session-top"><b>${esc(e.name || "Unnamed")}</b><span class="muted">›</span></div>
+          <div class="session-top"><span class="pick-top"><b>${esc(e.name || "Unnamed")}</b>${badgeHtml(e, w)}</span><span class="muted">›</span></div>
           <div class="chips">${filledSets(e.sets).map(x => `<span class="chip">${fmtSet(x)}</span>`).join("") || `<span class="muted">No sets</span>`}</div>
         </button>`).join("")}
         <div class="row"><button class="wide" id="wk-edit">Edit workout</button><button class="wide ghost danger" id="wk-del">Delete</button></div>
@@ -695,7 +732,7 @@ function renderHistory() {
   const sumOf = w => {
     const sets = w.exercises.reduce((t, e) => t + filledSets(e.sets).length, 0);
     const vol = w.exercises.reduce((t, e) => t + filledSets(e.sets).reduce((a, x) => a + num(x.reps) * num(x.weight), 0), 0);
-    return `${w.exercises.length} exercise${w.exercises.length === 1 ? "" : "s"} · ${sets} set${sets === 1 ? "" : "s"}${vol ? ` · ${fmtNum(vol)} kg` : ""}`;
+    return `${w.minutes ? `⏱ ${fmtDur(w.minutes)} · ` : ""}${w.exercises.length} exercise${w.exercises.length === 1 ? "" : "s"} · ${sets} set${sets === 1 ? "" : "s"}${vol ? ` · ${fmtNum(vol)} kg` : ""}`;
   };
   if (view === "workouts") {
     const ws = db.workouts.filter(w => w.savedAt && w.exercises.length).sort((a, b) => b.date.localeCompare(a.date) || b.savedAt - a.savedAt);
@@ -739,10 +776,11 @@ function weekStreak() {
   while (weeks.has(wk)) { n++; wk = prev(wk); }
   return n;
 }
-const dayValue = (w, m) => w.exercises.reduce((t, e) => t + filledSets(e.sets).reduce((a, x) => a + (m === "volume" ? num(x.reps) * num(x.weight) : 1), 0), 0);
+const dayValue = (w, m) => m === "time" ? (w.minutes || 0) : w.exercises.reduce((t, e) => t + filledSets(e.sets).reduce((a, x) => a + (m === "volume" ? num(x.reps) * num(x.weight) : 1), 0), 0);
 function heatmapHtml() {
   const m = prefs.heat || "sets", byDay = new Map();
   trained().forEach(w => byDay.set(w.date, (byDay.get(w.date) || 0) + dayValue(w, m)));
+  const noTime = m === "time" && ![...byDay.values()].some(v => v > 0);
   const end = today(), start = new Date(weekStart(end) + "T12:00:00"); start.setDate(start.getDate() - 7 * 52);
   const vals = [...byDay.values()].filter(v => v > 0).sort((a, b) => a - b);
   const q = f => vals.length ? vals[Math.min(vals.length - 1, Math.floor(f * vals.length))] : 1;
@@ -758,14 +796,15 @@ function heatmapHtml() {
       const d = new Date(d0); d.setDate(d.getDate() + r); const iso = isoD(d);
       if (iso > end) { cells += `<i class="hm-x"></i>`; continue; }
       const v = byDay.get(iso) || 0;
-      cells += `<i class="hm-${lvl(v)}${iso === end ? " hm-today" : ""}" title="${fmtShort(iso)}${v ? `: ${fmtNum(v)} ${m === "volume" ? "kg" : "sets"}` : ""}"></i>`;
+      cells += `<i class="hm-${lvl(v)}${iso === end ? " hm-today" : ""}" title="${fmtShort(iso)}${v ? `: ${m === "time" ? fmtDur(v) : `${fmtNum(v)} ${m === "volume" ? "kg" : "sets"}`}` : ""}"></i>`;
     }
     cols += `<div class="hm-col">${cells}</div>`;
   }
   return `<div class="card">
     <div class="stat-head"><b>Activity</b><span class="muted">last 12 months</span></div>
-    <div class="seg" style="margin:10px 0 12px"><button data-heat="sets" class="${m === "sets" ? "on" : ""}">Sets</button><button data-heat="volume" class="${m === "volume" ? "on" : ""}">Volume</button></div>
+    <div class="seg" style="margin:10px 0 12px"><button data-heat="sets" class="${m === "sets" ? "on" : ""}">Sets</button><button data-heat="volume" class="${m === "volume" ? "on" : ""}">Volume</button><button data-heat="time" class="${m === "time" ? "on" : ""}">Time</button></div>
     <div class="hm-scroll" id="hm-scroll"><div class="hm-months">${months}</div><div class="hm-grid">${cols}</div></div>
+    ${noTime ? `<p class="muted" style="font-size:13px;margin:8px 0 0">Time is recorded from now on: from your first set until you tap Save workout.</p>` : ""}
     <div class="hm-legend"><span>Less</span><i class="hm-0"></i><i class="hm-1"></i><i class="hm-2"></i><i class="hm-3"></i><i class="hm-4"></i><span>More</span></div>
   </div>`;
 }
@@ -866,7 +905,7 @@ function renderBackup() {
     <header><h1>Backup</h1></header>
     <main class="stack">
       <div class="card stack">
-        <div><b>Export</b><br><span class="muted">Saves all ${n} workout${n === 1 ? "" : "s"} as one file. Save it to iCloud Drive or Files. Do this regularly.</span></div>
+        <div><b>Export</b><br><span class="muted">Saves all ${n} workout${n === 1 ? "" : "s"} as one file. Save it to iCloud Drive or Files. ${db.lastBackup ? `Last backup: ${fmtDate(isoD(new Date(db.lastBackup)))}.` : "No backup yet."}</span></div>
         <button class="primary wide" id="export">Export backup</button>
       </div>
       <div class="card stack">
@@ -878,14 +917,15 @@ function renderBackup() {
     </main>`;
   document.getElementById("export").onclick = async () => {
     const name = `gym-log-backup-${today()}.json`;
+    const prevB = db.lastBackup; db.lastBackup = Date.now();
     const blob = new Blob([JSON.stringify(db, null, 1)], { type: "application/json" });
     const file = new File([blob], name, { type: "application/json" });
     if (navigator.canShare && navigator.canShare({ files: [file] })) {
-      try { await navigator.share({ files: [file], title: name }); return; }
-      catch (e) { if (e.name === "AbortError") return; }
+      try { await navigator.share({ files: [file], title: name }); save(); toast("Backup saved"); render(); return; }
+      catch (e) { if (e.name === "AbortError") { db.lastBackup = prevB; return; } }
     }
     const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name;
-    document.body.appendChild(a); a.click(); a.remove();
+    document.body.appendChild(a); a.click(); a.remove(); save(); render();
   };
   const fileIn = document.getElementById("file");
   document.getElementById("import").onclick = () => fileIn.click();
@@ -927,6 +967,7 @@ document.querySelectorAll("nav button").forEach(b => b.onclick = () => {
   render(); window.scrollTo(0, 0);
 });
 render();
+setInterval(() => { const t = document.getElementById("timer"), w = tab === "log" && !editWid ? cur(false) : null; if (t && w && w.startedAt) t.textContent = "⏱ " + fmtDur(Math.max(0, Math.floor((Date.now() - w.startedAt) / 60000))); }, 30000);
 
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
 </script>
