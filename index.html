@@ -122,6 +122,10 @@ nav button.on { color: var(--accent); }
 .chart-stats small { display: block; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
 .chart-stats b { font-size: 17px; }
 .up { color: var(--accent); } .down { color: var(--danger); }
+.modal-bg { position: fixed; inset: 0; z-index: 30; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; padding: 24px; }
+.modal { background: var(--card); border: 1px solid var(--line); border-radius: 18px; padding: 20px; width: 100%; max-width: 360px; }
+.modal p { margin: 0 0 18px; font-size: 18px; font-weight: 600; text-wrap: balance; }
+.danger-fill { background: var(--danger); color: #2a0707; font-weight: 700; }
 .toast {
   position: fixed; left: 50%; bottom: calc(96px + env(safe-area-inset-bottom)); transform: translateX(-50%);
   background: var(--accent); color: var(--accent-ink); font-weight: 700;
@@ -342,8 +346,8 @@ function renderLog() {
     const el = app.querySelector("[data-autofocus]"); if (el) el.focus();
   };
   const dw = document.getElementById("del-workout");
-  if (dw) dw.onclick = () => {
-    if (!confirm(`Delete the whole workout on ${fmtDate(logDate)}?`)) return;
+  if (dw) dw.onclick = async () => {
+    if (!(await ask(`Delete the whole workout on ${fmtDate(logDate)}?`))) return;
     db.workouts = db.workouts.filter(x => x.date !== logDate); save(); render();
   };
 
@@ -377,9 +381,9 @@ function renderLog() {
       row.querySelectorAll("input").forEach(inp => inp.addEventListener("input", () => {
         ex.sets[j][inp.dataset.f] = inp.value.replace(",", ".").trim(); save();
       }));
-      row.querySelector('[data-act="del-set"]').onclick = () => {
+      row.querySelector('[data-act="del-set"]').onclick = async () => {
         const s = ex.sets[j];
-        if ((s.reps !== "" || s.weight !== "") && !confirm(`Delete set ${j + 1} (${fmtSet(s)})?`)) return;
+        if ((s.reps !== "" || s.weight !== "") && !(await ask(`Delete set ${j + 1} (${fmtSet(s)})?`))) return;
         ex.sets.splice(j, 1); save(); render();
       };
     });
@@ -388,8 +392,8 @@ function renderLog() {
       ex.sets.push(prev ? { reps: prev.reps, weight: prev.weight } : { reps: "", weight: "" });
       save(); render();
     };
-    card.querySelector('[data-act="del-ex"]').onclick = () => {
-      if ((ex.name || filledSets(ex.sets).length) && !confirm(`Delete ${ex.name || "this exercise"} and all its sets?`)) return;
+    card.querySelector('[data-act="del-ex"]').onclick = async () => {
+      if ((ex.name || filledSets(ex.sets).length) && !(await ask(`Delete ${ex.name || "this exercise"} and all its sets?`))) return;
       w.exercises = w.exercises.filter(x => x !== ex); save(); render();
     };
   });
@@ -422,8 +426,8 @@ function renderHistory() {
     app.querySelectorAll(".session").forEach(card => {
       const w = db.workouts.find(x => x.id === card.dataset.w);
       card.querySelector('[data-act="edit"]').onclick = () => { logDate = w.date; tab = "log"; render(); window.scrollTo(0, 0); };
-      card.querySelector('[data-act="del"]').onclick = () => {
-        if (!confirm(`Delete ${title} from ${fmtDate(w.date)}?`)) return;
+      card.querySelector('[data-act="del"]').onclick = async () => {
+        if (!(await ask(`Delete ${title} from ${fmtDate(w.date)}?`))) return;
         w.exercises = w.exercises.filter(x => x.id !== card.dataset.e); save(); render();
       };
     });
@@ -475,18 +479,29 @@ function renderBackup() {
   fileIn.onchange = () => {
     const f = fileIn.files[0]; if (!f) return;
     const r = new FileReader();
-    r.onload = () => {
+    r.onload = async () => {
       try {
         const d = JSON.parse(r.result);
         if (!d || !Array.isArray(d.workouts)) throw 0;
-        if (!confirm(`Replace current data with ${d.workouts.length} workouts from this backup?`)) return;
+        if (!(await ask(`Replace current data with ${d.workouts.length} workouts from this backup?`, "Replace"))) return;
         db = d; save(); toast("Backup restored"); render();
-      } catch (e) { alert("That file isn't a gym-log backup."); }
+      } catch (e) { toast("That file isn't a gym-log backup"); }
     };
     r.readAsText(f);
   };
 }
 
+function ask(msg, yes = "Delete") {
+  return new Promise(res => {
+    const bg = document.createElement("div"); bg.className = "modal-bg";
+    bg.innerHTML = `<div class="modal" role="dialog" aria-modal="true"><p></p><div class="row"><button class="wide" data-r="0">Cancel</button><button class="wide ${yes === "Delete" ? "danger-fill" : "primary"}" data-r="1"></button></div></div>`;
+    bg.querySelector("p").textContent = msg; bg.querySelector('[data-r="1"]').textContent = yes;
+    const done = v => { bg.remove(); res(v); };
+    bg.onclick = e => { if (e.target === bg) done(false); };
+    bg.querySelectorAll("[data-r]").forEach(b => b.onclick = () => done(b.dataset.r === "1"));
+    document.body.appendChild(bg); bg.querySelector('[data-r="0"]').focus();
+  });
+}
 function toast(msg) {
   const t = document.createElement("div"); t.className = "toast"; t.textContent = msg;
   document.body.appendChild(t); setTimeout(() => t.remove(), 2000);
