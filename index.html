@@ -168,6 +168,11 @@ textarea:focus { border-color: var(--accent); }
 .ep-val small.up, .ep-val small.down, .ep-val small.muted { display: block; }
 .ep-val small.up { color: var(--accent); } .ep-val small.down { color: var(--danger); }
 .spark { width: 90px; height: 30px; display: block; }
+.wk-item { width: 100%; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; text-align: left; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; margin-bottom: 10px; }
+.wk-sum { font-size: 15px; font-variant-numeric: tabular-nums; }
+.wk-ex { font-size: 14px; }
+.wk-note { font-size: 14px; color: var(--muted); font-style: italic; }
+.wk-ex-card { width: 100%; text-align: left; display: block; margin: 0; }
 .modal-bg { position: fixed; inset: 0; z-index: 30; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; padding: 24px; }
 .modal { background: var(--card); border: 1px solid var(--line); border-radius: 18px; padding: 20px; width: 100%; max-width: 360px; }
 .modal p { margin: 0 0 18px; font-size: 18px; font-weight: 600; text-wrap: balance; }
@@ -194,8 +199,8 @@ textarea:focus { border-color: var(--accent); }
 <body>
 <div id="app"></div>
 <nav>
-  <button data-tab="log"><span>🏋️</span>Log</button>
   <button data-tab="stats"><span>📊</span>Stats</button>
+  <button data-tab="log"><span>🏋️</span>Log</button>
   <button data-tab="history"><span>📈</span>History</button>
   <button data-tab="backup"><span>💾</span>Backup</button>
 </nav>
@@ -228,6 +233,9 @@ const filledSets = sets => sets.filter(s => s.reps !== "" || s.weight !== "");
 /* ---------- state ---------- */
 let tab = "log";
 let logDate = today();
+// workouts from earlier days count as saved
+db.workouts.forEach(w => { if (!w.savedAt && w.date < today()) w.savedAt = new Date(w.date + "T20:00:00").getTime(); });
+let historyW = null; // id of a workout open in History
 let historyEx = null; // normalized name or null
 const PREF = "gymlog.prefs";
 let prefs = (() => { try { return JSON.parse(localStorage.getItem(PREF)) || {}; } catch (e) { return {}; } })();
@@ -330,6 +338,13 @@ function wireChart(key) {
 }
 function refreshChart(key) { document.getElementById("chart-card").outerHTML = chartHtml(key); wireChart(key); }
 
+let editWid = null; // id of a saved workout being edited on the Log screen
+function cur(create) {
+  let w = editWid ? db.workouts.find(x => x.id === editWid) : db.workouts.find(x => x.date === logDate && !x.savedAt);
+  if (!w && editWid) { editWid = null; return cur(create); }
+  if (!w && create) { w = { id: uid(), date: logDate, exercises: [] }; db.workouts.push(w); }
+  return w;
+}
 function workoutFor(date, create) {
   let w = db.workouts.find(w => w.date === date);
   if (!w && create) { w = { id: uid(), date, exercises: [] }; db.workouts.push(w); }
@@ -400,9 +415,10 @@ function askText(title, value, ok = "Save") {
 }
 function saveWorkout() {
   closeOpen();
-  const w = workoutFor(logDate, false);
+  const w = cur(false);
   if (!w || !w.exercises.length) return render();
-  w.savedAt = Date.now(); save(); render();
+  const wasEdit = !!editWid;
+  w.savedAt = Date.now(); editWid = null; logDate = today(); save(); render();
   const sets = w.exercises.reduce((t, e) => t + filledSets(e.sets).length, 0);
   const vol = w.exercises.reduce((t, e) => t + filledSets(e.sets).reduce((a, x) => a + num(x.reps) * num(x.weight), 0), 0);
   const beat = w.exercises.filter(e => {
@@ -410,7 +426,7 @@ function saveWorkout() {
     const top = xs => Math.max(0, ...filledSets(xs).map(x => num(x.weight)));
     return top(e.sets) > top(l.e.sets);
   }).map(e => e.name);
-  const sh = sheet(`<div class="saved-icon">✓</div><p style="text-align:center;margin-bottom:6px">Workout saved</p>
+  const sh = sheet(`<div class="saved-icon">✓</div><p style="text-align:center;margin-bottom:6px">${wasEdit ? "Changes saved" : "Workout saved to History"}</p>
     <div class="muted" style="text-align:center;margin-bottom:16px">${fmtDate(w.date)}${w.split ? ` · ${esc(w.split)}` : ""}</div>
     <div class="chart-stats" style="margin-top:0">
       <div><small>Exercises</small><b>${w.exercises.length}</b></div>
@@ -419,17 +435,17 @@ function saveWorkout() {
     </div>
     ${beat.length ? `<div class="last" style="margin-top:14px"><b>Heavier than last time:</b> ${beat.map(esc).join(", ")}</div>` : ""}
     <div class="row" style="margin-top:16px"><button class="wide" data-close>Close</button><button class="wide primary" id="see-history">See History</button></div>`);
-  sh.el.querySelector("#see-history").onclick = () => { sh.close(); tab = "history"; historyEx = null; render(); window.scrollTo(0, 0); };
+  sh.el.querySelector("#see-history").onclick = () => { sh.close(); tab = "history"; prefs.histView = "workouts"; savePrefs(); historyEx = null; historyW = w.id; render(); window.scrollTo(0, 0); };
 }
 function repeatPicker() {
-  const list = db.workouts.filter(x => x.date !== logDate && x.exercises.length).sort((a, b) => b.date.localeCompare(a.date)).slice(0, 25);
+  const list = db.workouts.filter(x => x !== cur(false) && x.exercises.length).sort((a, b) => b.date.localeCompare(a.date)).slice(0, 25);
   const sh = sheet(`<p>Repeat a past workout</p><div class="muted" style="font-size:14px;margin:-10px 0 12px">Copies its exercises and weights into ${logDate === today() ? "today" : fmtShort(logDate)}. Change anything after.</div>
     <div class="pick-list">${list.map(x => `<button class="pick" data-w="${x.id}">
       <span class="pick-top"><b>${fmtDate(x.date)}</b>${x.split ? `<span class="split-tag">${esc(x.split)}</span>` : ""}</span>
       <span class="muted">${x.exercises.map(e => esc(e.name || "Unnamed")).join(" · ")}</span></button>`).join("")}</div>
     <button class="wide" data-close style="margin-top:12px">Cancel</button>`);
   sh.el.querySelectorAll("[data-w]").forEach(b => b.onclick = () => {
-    const src = db.workouts.find(x => x.id === b.dataset.w), dst = workoutFor(logDate, true);
+    const src = db.workouts.find(x => x.id === b.dataset.w), dst = cur(true);
     const have = new Set(dst.exercises.map(e => norm(e.name)));
     let n = 0;
     src.exercises.forEach(e => {
@@ -467,7 +483,7 @@ async function renameExercise(key) {
 }
 function closeOpen() {
   // close the open exercise; drop it if nothing was entered
-  const w = workoutFor(logDate, false);
+  const w = cur(false);
   if (w && openEx) {
     const ex = w.exercises.find(x => x.id === openEx);
     if (ex) {
@@ -481,14 +497,14 @@ function closeOpen() {
   openEx = null;
 }
 function renderLog() {
-  const w = workoutFor(logDate, false);
+  const w = cur(false);
   const exs = w ? w.exercises : [];
   if (openEx && !exs.some(e => e.id === openEx)) openEx = null;
   const isToday = logDate === today();
   const doneCount = exs.filter(e => e.id !== openEx).length;
   app.innerHTML = `
     <header>
-      <div><h1>${isToday ? "Today’s workout" : "Workout"}</h1>${isToday ? "" : `<div class="muted" style="font-size:15px">${fmtDate(logDate)}</div>`}</div>
+      <div><h1>${editWid ? "Edit workout" : isToday ? "Today’s workout" : "Workout"}</h1>${isToday && !editWid ? "" : `<div class="muted" style="font-size:15px">${fmtDate(logDate)}</div>`}</div>
       <input type="date" id="date" value="${logDate}" max="${today()}">
     </header>
     <main>
@@ -500,7 +516,7 @@ function renderLog() {
         ${pastSplits().filter(x => norm(x) !== norm(w ? w.split : "")).length ? `<div class="chips split-chips">${pastSplits().filter(x => norm(x) !== norm(w ? w.split : "")).map(x => `<button class="chip-btn" data-split="${esc(x)}">${esc(x)}</button>`).join("")}</div>` : ""}
         <textarea id="note" rows="2" placeholder="Notes: how it felt, anything to remember">${esc(w ? w.note || "" : "")}</textarea>
       </div>
-      ${exs.length ? "" : `<div class="empty" style="padding:24px 10px">No exercises ${isToday ? "today" : "on this day"} yet.</div>`}
+      ${exs.length ? "" : `<div class="empty" style="padding:24px 10px">No exercises yet.</div>`}
       ${doneCount ? `<div class="section-label">What you did · ${doneCount} exercise${doneCount > 1 ? "s" : ""}</div>` : ""}
       ${exs.map(e => e.id !== openEx ? `
         <button class="done-row" data-open="${e.id}">
@@ -529,20 +545,20 @@ function renderLog() {
           <div class="row"><button class="wide" data-act="add-set">+ Set</button><button class="wide primary" data-act="done">Done</button></div>
         </div>`).join("")}
       ${openEx ? "" : `<button class="primary wide" id="add-ex">+ Exercise</button>`}
-      ${openEx || !db.workouts.some(x => x.date !== logDate && x.exercises.length) ? "" : `<button class="wide" id="repeat" style="margin-top:10px">↻ Repeat a past workout</button>`}
-      ${exs.length && !openEx ? `<button class="save-btn wide" id="save-workout">${w.savedAt ? "✓ Saved" : "Save workout"}</button>
-        <div class="muted" style="font-size:13px;text-align:center;margin-top:6px">${w.savedAt ? `Saved to History at ${new Date(w.savedAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}` : "Your sets are kept as you type. Save when you’re done."}</div>` : ""}
+      ${openEx || !db.workouts.some(x => x !== cur(false) && x.exercises.length) ? "" : `<button class="wide" id="repeat" style="margin-top:10px">↻ Repeat a past workout</button>`}
+      ${exs.length && !openEx ? `<button class="save-btn wide" id="save-workout">${editWid ? "Save changes" : "Save workout"}</button>
+        <div class="muted" style="font-size:13px;text-align:center;margin-top:6px">${editWid ? "You’re editing a saved workout. Changes are kept as you type." : "Your sets are kept as you type. Save to move it to History."}</div>` : ""}
       ${exs.length ? `<button class="ghost danger wide" id="del-workout" style="margin-top:20px">Delete this whole workout</button>` : ""}
     </main>`;
 
-  document.getElementById("date").onchange = ev => { closeOpen(); logDate = ev.target.value || today(); render(); };
+  document.getElementById("date").onchange = ev => { closeOpen(); const v = ev.target.value || today(), x = cur(false); if (x) x.date = v; logDate = v; save(); render(); };
   const splitIn = document.getElementById("split"), noteIn = document.getElementById("note");
   const grow = () => { noteIn.style.height = "auto"; noteIn.style.height = noteIn.scrollHeight + 2 + "px"; };
   grow();
-  splitIn.addEventListener("input", () => { workoutFor(logDate, true).split = splitIn.value; save(); });
-  splitIn.addEventListener("blur", () => { const x = workoutFor(logDate, false); if (x) { x.split = (x.split || "").trim().replace(/\s+/g, " "); save(); } });
-  noteIn.addEventListener("input", () => { workoutFor(logDate, true).note = noteIn.value; save(); grow(); });
-  app.querySelectorAll("[data-split]").forEach(b => b.onclick = () => { workoutFor(logDate, true).split = b.dataset.split; save(); render(); });
+  splitIn.addEventListener("input", () => { cur(true).split = splitIn.value; save(); });
+  splitIn.addEventListener("blur", () => { const x = cur(false); if (x) { x.split = (x.split || "").trim().replace(/\s+/g, " "); save(); } });
+  noteIn.addEventListener("input", () => { cur(true).note = noteIn.value; save(); grow(); });
+  app.querySelectorAll("[data-split]").forEach(b => b.onclick = () => { cur(true).split = b.dataset.split; save(); render(); });
   const sv = document.getElementById("save-workout");
   if (sv) sv.onclick = saveWorkout;
   const rp = document.getElementById("repeat");
@@ -550,7 +566,7 @@ function renderLog() {
   const addBtn = document.getElementById("add-ex");
   if (addBtn) addBtn.onclick = () => {
     const ex = { id: uid(), name: "", sets: [{ reps: "", weight: "" }] };
-    workoutFor(logDate, true).exercises.push(ex); openEx = ex.id;
+    cur(true).exercises.push(ex); openEx = ex.id;
     save(); render();
     const el = app.querySelector("[data-autofocus]"); if (el) el.focus();
   };
@@ -560,8 +576,8 @@ function renderLog() {
   });
   const dw = document.getElementById("del-workout");
   if (dw) dw.onclick = async () => {
-    if (!(await ask(`Delete the whole workout on ${fmtDate(logDate)}?`))) return;
-    db.workouts = db.workouts.filter(x => x.date !== logDate); save(); render();
+    if (!(await ask(`Delete this whole workout?`))) return;
+    const cw = cur(false); db.workouts = db.workouts.filter(x => x !== cw); editWid = null; logDate = today(); save(); render();
   };
 
   app.querySelectorAll("[data-ex]").forEach(card => {
@@ -614,6 +630,31 @@ function renderLog() {
 }
 
 function renderHistory() {
+  if (historyW) {
+    const w = db.workouts.find(x => x.id === historyW);
+    if (!w) { historyW = null; return renderHistory(); }
+    app.innerHTML = `
+      <header><button class="ghost" id="back" style="padding:0 6px">‹ Back</button><h2 style="flex:1">Workout</h2></header>
+      <main class="stack">
+        <div>
+          <div class="pick-top"><b style="font-size:20px">${fmtDate(w.date)}</b>${w.split ? `<span class="split-tag">${esc(w.split)}</span>` : ""}</div>
+          ${(w.note || "").trim() ? `<div class="card" style="margin:12px 0 0;white-space:pre-wrap">${esc(w.note.trim())}</div>` : ""}
+        </div>
+        ${w.exercises.map(e => `<button class="card session wk-ex-card" data-goex="${esc(norm(e.name))}">
+          <div class="session-top"><b>${esc(e.name || "Unnamed")}</b><span class="muted">›</span></div>
+          <div class="chips">${filledSets(e.sets).map(x => `<span class="chip">${fmtSet(x)}</span>`).join("") || `<span class="muted">No sets</span>`}</div>
+        </button>`).join("")}
+        <div class="row"><button class="wide" id="wk-edit">Edit workout</button><button class="wide ghost danger" id="wk-del">Delete</button></div>
+      </main>`;
+    document.getElementById("back").onclick = () => { historyW = null; render(); };
+    app.querySelectorAll("[data-goex]").forEach(b => b.onclick = () => { if (!b.dataset.goex) return; historyW = null; historyEx = b.dataset.goex; render(); window.scrollTo(0, 0); });
+    document.getElementById("wk-edit").onclick = () => { closeOpen(); editWid = w.id; logDate = w.date; openEx = null; historyW = null; tab = "log"; render(); window.scrollTo(0, 0); };
+    document.getElementById("wk-del").onclick = async () => {
+      if (!(await ask(`Delete the whole workout from ${fmtDate(w.date)}?`))) return;
+      db.workouts = db.workouts.filter(x => x !== w); historyW = null; save(); render();
+    };
+    return;
+  }
   if (historyEx) {
     const sessions = sessionsOf(historyEx);
     if (!sessions.length) { historyEx = null; return renderHistory(); }
@@ -640,7 +681,7 @@ function renderHistory() {
     document.getElementById("rename").onclick = () => renameExercise(historyEx);
     app.querySelectorAll(".session").forEach(card => {
       const w = db.workouts.find(x => x.id === card.dataset.w);
-      card.querySelector('[data-act="edit"]').onclick = () => { closeOpen(); logDate = w.date; openEx = card.dataset.e; tab = "log"; render(); window.scrollTo(0, 0); };
+      card.querySelector('[data-act="edit"]').onclick = () => { closeOpen(); editWid = w.id; logDate = w.date; openEx = card.dataset.e; tab = "log"; render(); window.scrollTo(0, 0); };
       card.querySelector('[data-act="del"]').onclick = async () => {
         if (!(await ask(`Delete ${title} from ${fmtDate(w.date)}?`))) return;
         w.exercises = w.exercises.filter(x => x.id !== card.dataset.e); save(); render();
@@ -648,10 +689,32 @@ function renderHistory() {
     });
     return;
   }
+  const view = prefs.histView || "workouts";
+  const seg = `<div class="seg" style="margin-bottom:14px"><button data-hv="workouts" class="${view === "workouts" ? "on" : ""}">Workouts</button><button data-hv="exercises" class="${view === "exercises" ? "on" : ""}">Exercises</button></div>`;
+  const wireSeg = () => app.querySelectorAll("[data-hv]").forEach(b => b.onclick = () => { prefs.histView = b.dataset.hv; savePrefs(); render(); });
+  const sumOf = w => {
+    const sets = w.exercises.reduce((t, e) => t + filledSets(e.sets).length, 0);
+    const vol = w.exercises.reduce((t, e) => t + filledSets(e.sets).reduce((a, x) => a + num(x.reps) * num(x.weight), 0), 0);
+    return `${w.exercises.length} exercise${w.exercises.length === 1 ? "" : "s"} · ${sets} set${sets === 1 ? "" : "s"}${vol ? ` · ${fmtNum(vol)} kg` : ""}`;
+  };
+  if (view === "workouts") {
+    const ws = db.workouts.filter(w => w.savedAt && w.exercises.length).sort((a, b) => b.date.localeCompare(a.date) || b.savedAt - a.savedAt);
+    app.innerHTML = `<header><h1>History</h1></header><main>${seg}
+      ${ws.length ? ws.map(w => `<button class="wk-item" data-wk="${w.id}">
+        <span class="pick-top"><b>${fmtDate(w.date)}</b>${w.split ? `<span class="split-tag">${esc(w.split)}</span>` : ""}</span>
+        <span class="wk-sum">${sumOf(w)}</span>
+        <span class="muted wk-ex">${w.exercises.map(e => esc(e.name || "Unnamed")).join(" · ")}</span>
+        ${(w.note || "").trim() ? `<span class="wk-note">“${esc(w.note.trim().slice(0, 90))}${w.note.trim().length > 90 ? "…" : ""}”</span>` : ""}
+      </button>`).join("") : `<div class="empty">No saved workouts yet.<br>Tap “Save workout” on the Log screen when you finish.</div>`}
+    </main>`;
+    wireSeg();
+    app.querySelectorAll("[data-wk]").forEach(b => b.onclick = () => { historyW = b.dataset.wk; render(); window.scrollTo(0, 0); });
+    return;
+  }
   const names = allNames().filter(n => sessionsOf(n.key).some(s => filledSets(s.e.sets).length));
   app.innerHTML = `
     <header><h1>History</h1></header>
-    <main>
+    <main>${seg}
       ${names.length ? names.map(n => {
         const c = sessionsOf(n.key).length;
         return `<button class="list-item" data-key="${esc(n.key)}">
@@ -659,6 +722,7 @@ function renderHistory() {
           <span class="muted">›</span></button>`;
       }).join("") : `<div class="empty">Nothing logged yet.<br>Your exercises will appear here.</div>`}
     </main>`;
+  wireSeg();
   app.querySelectorAll("[data-key]").forEach(b => b.onclick = () => { historyEx = b.dataset.key; render(); window.scrollTo(0, 0); });
 }
 
@@ -858,7 +922,8 @@ function toast(msg) {
 
 document.querySelectorAll("nav button").forEach(b => b.onclick = () => {
   if (tab === "log") closeOpen();
-  tab = b.dataset.tab; if (tab === "history") historyEx = null; if (tab === "log") logDate = logDate || today();
+  if (editWid) { editWid = null; logDate = today(); }
+  tab = b.dataset.tab; if (tab === "history") { historyEx = null; historyW = null; } if (tab === "log") logDate = logDate || today();
   render(); window.scrollTo(0, 0);
 });
 render();
