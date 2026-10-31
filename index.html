@@ -122,6 +122,18 @@ nav button.on { color: var(--accent); }
 .chart-stats small { display: block; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
 .chart-stats b { font-size: 17px; }
 .up { color: var(--accent); } .down { color: var(--danger); }
+textarea { font: inherit; color: inherit; background: var(--card2); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; width: 100%; resize: none; outline: none; min-height: 48px; }
+textarea:focus { border-color: var(--accent); }
+.day-card { display: flex; flex-direction: column; gap: 10px; }
+.day-row { display: flex; align-items: center; gap: 10px; }
+.day-label { color: var(--muted); font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; min-width: 44px; }
+.split-chips { margin-top: -2px; }
+.chip-btn { min-height: 34px; padding: 0 12px; border-radius: 999px; font-size: 14px; background: var(--card2); color: var(--muted); border: 1px solid var(--line); }
+.split-tag { background: #13261a; color: var(--accent); border-radius: 999px; padding: 2px 10px; font-size: 13px; font-weight: 600; white-space: nowrap; }
+.pick-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.sheet { max-height: 80vh; overflow-y: auto; }
+.pick-list { display: flex; flex-direction: column; gap: 8px; }
+.pick { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; text-align: left; padding: 12px 14px; background: var(--card2); font-size: 15px; }
 .modal-bg { position: fixed; inset: 0; z-index: 30; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; padding: 24px; }
 .modal { background: var(--card); border: 1px solid var(--line); border-radius: 18px; padding: 20px; width: 100%; max-width: 360px; }
 .modal p { margin: 0 0 18px; font-size: 18px; font-weight: 600; text-wrap: balance; }
@@ -162,7 +174,7 @@ function load() {
   return { workouts: [] };
 }
 function save() {
-  db.workouts = db.workouts.filter(w => w.exercises.length);
+  db.workouts = db.workouts.filter(w => w.exercises.length || (w.split || "").trim() || (w.note || "").trim());
   try { localStorage.setItem(KEY, JSON.stringify(db)); } catch (e) { toast("Could not save!"); }
 }
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -240,10 +252,11 @@ function chartSvg(pts, unit) {
   return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Progress chart in ${unit}">${grid}${area}
     <path d="${line}" fill="none" stroke="#4ade80" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>${dots}${xl}</svg>`;
 }
+let curMetric = "weight";
 function chartHtml(key) {
   const anyWeight = sessionsOf(key).some(s => s.e.sets.some(x => num(x.weight) > 0));
-  if (!prefs.metric || (!anyWeight && prefs.metric !== "reps")) prefs.metric = anyWeight ? "weight" : "reps";
-  const metric = prefs.metric, group = prefs.group, m = METRICS[metric];
+  const metric = curMetric = anyWeight ? (prefs.metric || "weight") : "reps";
+  const group = prefs.group, m = METRICS[metric];
   const pts = chartPoints(key, metric, group);
   const metricBtns = (anyWeight ? ["weight", "volume", "reps"] : ["reps"])
     .map(k => `<button data-metric="${k}" class="${k === metric ? "on" : ""}">${METRICS[k].label}</button>`).join("");
@@ -272,10 +285,10 @@ function wireChart(key) {
   const card = document.getElementById("chart-card"); if (!card) return;
   card.querySelectorAll("[data-metric]").forEach(b => b.onclick = () => { prefs.metric = b.dataset.metric; savePrefs(); refreshChart(key); });
   card.querySelectorAll("[data-group]").forEach(b => b.onclick = () => { prefs.group = b.dataset.group; savePrefs(); refreshChart(key); });
-  const pts = chartPoints(key, prefs.metric, prefs.group), info = document.getElementById("chart-info");
+  const pts = chartPoints(key, curMetric, prefs.group), info = document.getElementById("chart-info");
   card.querySelectorAll("rect[data-i]").forEach(r => r.addEventListener("click", () => {
     const p = pts[+r.dataset.i];
-    info.innerHTML = `<b>${esc(p.long)}:</b> ${fmtNum(p.v)} ${METRICS[prefs.metric].unit}${p.n > 1 ? ` <span class="muted">(${p.n} sessions)</span>` : ""}`;
+    info.innerHTML = `<b>${esc(p.long)}:</b> ${fmtNum(p.v)} ${METRICS[curMetric].unit}${p.n > 1 ? ` <span class="muted">(${p.n} sessions)</span>` : ""}`;
   }));
 }
 function refreshChart(key) { document.getElementById("chart-card").outerHTML = chartHtml(key); wireChart(key); }
@@ -320,6 +333,77 @@ function lastHtml(name, date) {
 }
 
 let openEx = null; // id of the exercise being edited on the Log screen
+function pastSplits() {
+  const seen = new Set(), out = [];
+  [...db.workouts].sort((a, b) => b.date.localeCompare(a.date)).forEach(w => {
+    const s = (w.split || "").trim(); if (s && !seen.has(norm(s))) { seen.add(norm(s)); out.push(s); }
+  });
+  return out.slice(0, 6);
+}
+function sheet(inner) {
+  const bg = document.createElement("div"); bg.className = "modal-bg";
+  bg.innerHTML = `<div class="modal sheet" role="dialog" aria-modal="true">${inner}</div>`;
+  const close = () => bg.remove();
+  bg.addEventListener("click", e => { if (e.target === bg || e.target.closest("[data-close]")) close(); });
+  document.body.appendChild(bg);
+  return { el: bg, close };
+}
+function askText(title, value, ok = "Save") {
+  return new Promise(res => {
+    const sh = sheet(`<p></p><input id="ask-text" autocomplete="off" autocapitalize="words"><div class="row" style="margin-top:14px"><button class="wide" data-close>Cancel</button><button class="wide primary" id="ask-ok"></button></div>`);
+    sh.el.querySelector("p").textContent = title; sh.el.querySelector("#ask-ok").textContent = ok;
+    const inp = sh.el.querySelector("#ask-text"); inp.value = value; inp.focus(); inp.select();
+    let done = false;
+    const finish = v => { if (done) return; done = true; sh.close(); res(v); };
+    sh.el.querySelector("#ask-ok").onclick = () => finish(inp.value);
+    inp.addEventListener("keydown", e => { if (e.key === "Enter") finish(inp.value); });
+    new MutationObserver((m, o) => { if (!sh.el.isConnected) { o.disconnect(); finish(null); } }).observe(document.body, { childList: true });
+  });
+}
+function repeatPicker() {
+  const list = db.workouts.filter(x => x.date !== logDate && x.exercises.length).sort((a, b) => b.date.localeCompare(a.date)).slice(0, 25);
+  const sh = sheet(`<p>Repeat a past workout</p><div class="muted" style="font-size:14px;margin:-10px 0 12px">Copies its exercises and weights into ${logDate === today() ? "today" : fmtShort(logDate)}. Change anything after.</div>
+    <div class="pick-list">${list.map(x => `<button class="pick" data-w="${x.id}">
+      <span class="pick-top"><b>${fmtDate(x.date)}</b>${x.split ? `<span class="split-tag">${esc(x.split)}</span>` : ""}</span>
+      <span class="muted">${x.exercises.map(e => esc(e.name || "Unnamed")).join(" · ")}</span></button>`).join("")}</div>
+    <button class="wide" data-close style="margin-top:12px">Cancel</button>`);
+  sh.el.querySelectorAll("[data-w]").forEach(b => b.onclick = () => {
+    const src = db.workouts.find(x => x.id === b.dataset.w), dst = workoutFor(logDate, true);
+    const have = new Set(dst.exercises.map(e => norm(e.name)));
+    let n = 0;
+    src.exercises.forEach(e => {
+      if (!norm(e.name) || have.has(norm(e.name))) return;
+      const sets = filledSets(e.sets).map(x => ({ reps: x.reps, weight: x.weight }));
+      dst.exercises.push({ id: uid(), name: e.name, sets: sets.length ? sets : [{ reps: "", weight: "" }] }); n++;
+    });
+    if (!(dst.split || "").trim() && src.split) dst.split = src.split;
+    save(); sh.close(); render();
+    toast(n ? `Copied ${n} exercise${n > 1 ? "s" : ""} from ${fmtShort(src.date)}` : "Those exercises are already here");
+  });
+}
+async function renameExercise(key) {
+  const cur = allNames().find(n => n.key === key); if (!cur) return;
+  const v = await askText(`Rename “${cur.name}”`, cur.name, "Rename");
+  if (v == null) return;
+  const name = v.trim().replace(/\s+/g, " "), nk = norm(name);
+  if (!nk) return toast("Enter a name");
+  const target = nk !== key ? allNames().find(n => n.key === nk) : null;
+  if (target) {
+    const c = sessionsOf(key).length;
+    if (!(await ask(`Merge “${cur.name}” into “${target.name}”? Its ${c} session${c > 1 ? "s" : ""} will move over.`, "Merge"))) return;
+  }
+  const finalName = target ? target.name : name;
+  db.workouts.forEach(w => {
+    const hits = w.exercises.filter(e => norm(e.name) === key || norm(e.name) === nk);
+    hits.forEach(e => e.name = finalName);
+    if (hits.length > 1) {
+      hits.slice(1).forEach(e => hits[0].sets.push(...filledSets(e.sets)));
+      w.exercises = w.exercises.filter(e => !hits.slice(1).includes(e));
+    }
+  });
+  save(); historyEx = nk; render();
+  toast(target ? `Merged into ${finalName}` : `Renamed to ${finalName}`);
+}
 function closeOpen() {
   // close the open exercise; drop it if nothing was entered
   const w = workoutFor(logDate, false);
@@ -347,7 +431,15 @@ function renderLog() {
       <input type="date" id="date" value="${logDate}" max="${today()}">
     </header>
     <main>
-      ${exs.length ? "" : `<div class="empty">Nothing logged ${isToday ? "today" : "on this day"} yet.<br>Tap “+ Exercise” to start.</div>`}
+      <div class="card day-card">
+        <div class="day-row">
+          <label class="day-label" for="split">Split</label>
+          <input id="split" placeholder="Push, Legs, Upper…" value="${esc(w ? w.split || "" : "")}" autocomplete="off" autocapitalize="words">
+        </div>
+        ${pastSplits().filter(x => norm(x) !== norm(w ? w.split : "")).length ? `<div class="chips split-chips">${pastSplits().filter(x => norm(x) !== norm(w ? w.split : "")).map(x => `<button class="chip-btn" data-split="${esc(x)}">${esc(x)}</button>`).join("")}</div>` : ""}
+        <textarea id="note" rows="2" placeholder="Notes: how it felt, anything to remember">${esc(w ? w.note || "" : "")}</textarea>
+      </div>
+      ${exs.length ? "" : `<div class="empty" style="padding:24px 10px">No exercises ${isToday ? "today" : "on this day"} yet.</div>`}
       ${doneCount ? `<div class="section-label">What you did · ${doneCount} exercise${doneCount > 1 ? "s" : ""}</div>` : ""}
       ${exs.map(e => e.id !== openEx ? `
         <button class="done-row" data-open="${e.id}">
@@ -376,10 +468,20 @@ function renderLog() {
           <div class="row"><button class="wide" data-act="add-set">+ Set</button><button class="wide primary" data-act="done">Done</button></div>
         </div>`).join("")}
       ${openEx ? "" : `<button class="primary wide" id="add-ex">+ Exercise</button>`}
+      ${openEx || !db.workouts.some(x => x.date !== logDate && x.exercises.length) ? "" : `<button class="wide" id="repeat" style="margin-top:10px">↻ Repeat a past workout</button>`}
       ${exs.length ? `<button class="ghost danger wide" id="del-workout" style="margin-top:20px">Delete this whole workout</button>` : ""}
     </main>`;
 
   document.getElementById("date").onchange = ev => { closeOpen(); logDate = ev.target.value || today(); render(); };
+  const splitIn = document.getElementById("split"), noteIn = document.getElementById("note");
+  const grow = () => { noteIn.style.height = "auto"; noteIn.style.height = noteIn.scrollHeight + 2 + "px"; };
+  grow();
+  splitIn.addEventListener("input", () => { workoutFor(logDate, true).split = splitIn.value; save(); });
+  splitIn.addEventListener("blur", () => { const x = workoutFor(logDate, false); if (x) { x.split = (x.split || "").trim().replace(/\s+/g, " "); save(); } });
+  noteIn.addEventListener("input", () => { workoutFor(logDate, true).note = noteIn.value; save(); grow(); });
+  app.querySelectorAll("[data-split]").forEach(b => b.onclick = () => { workoutFor(logDate, true).split = b.dataset.split; save(); render(); });
+  const rp = document.getElementById("repeat");
+  if (rp) rp.onclick = repeatPicker;
   const addBtn = document.getElementById("add-ex");
   if (addBtn) addBtn.onclick = () => {
     const ex = { id: uid(), name: "", sets: [{ reps: "", weight: "" }] };
@@ -452,14 +554,14 @@ function renderHistory() {
     if (!sessions.length) { historyEx = null; return renderHistory(); }
     const title = allNames().find(n => n.key === historyEx).name;
     app.innerHTML = `
-      <header><button class="ghost" id="back" style="padding:0 6px">‹ Back</button><h2 style="flex:1">${esc(title)}</h2></header>
+      <header><button class="ghost" id="back" style="padding:0 6px">‹ Back</button><h2 style="flex:1;min-width:0;overflow-wrap:anywhere">${esc(title)}</h2><button class="ghost" id="rename" style="padding:0 6px;color:var(--accent)">Rename</button></header>
       <main>
         ${chartHtml(historyEx)}
         <p class="muted">${sessions.length} session${sessions.length > 1 ? "s" : ""}, newest first</p>
         ${sessions.map(({ w, e }) => `
           <div class="card session" data-w="${w.id}" data-e="${e.id}">
             <div class="session-top">
-              <b>${fmtDate(w.date)}</b>
+              <span class="pick-top"><b>${fmtDate(w.date)}</b>${w.split ? `<span class="split-tag">${esc(w.split)}</span>` : ""}</span>
               <div class="row">
                 <button class="ghost" data-act="edit" style="padding:0 10px">Edit</button>
                 <button class="icon-btn" data-act="del" aria-label="Delete session">🗑</button>
@@ -470,6 +572,7 @@ function renderHistory() {
       </main>`;
     wireChart(historyEx);
     document.getElementById("back").onclick = () => { historyEx = null; render(); };
+    document.getElementById("rename").onclick = () => renameExercise(historyEx);
     app.querySelectorAll(".session").forEach(card => {
       const w = db.workouts.find(x => x.id === card.dataset.w);
       card.querySelector('[data-act="edit"]').onclick = () => { closeOpen(); logDate = w.date; openEx = card.dataset.e; tab = "log"; render(); window.scrollTo(0, 0); };
