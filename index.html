@@ -1,0 +1,393 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<title>gym-log</title>
+<meta name="theme-color" content="#0f1115">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="gym-log">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" href="icon-192.png">
+<link rel="manifest" href="manifest.json">
+<style>
+:root {
+  --bg: #0f1115;
+  --card: #1a1d24;
+  --card2: #232731;
+  --line: #2e333f;
+  --text: #f2f3f5;
+  --muted: #9aa1ae;
+  --accent: #4ade80;
+  --accent-ink: #06240f;
+  --danger: #f87171;
+  --radius: 14px;
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { margin: 0; background: var(--bg); color: var(--text); }
+body {
+  font: 17px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  padding: env(safe-area-inset-top) 0 calc(84px + env(safe-area-inset-bottom));
+  min-height: 100vh;
+}
+header {
+  position: sticky; top: 0; z-index: 5;
+  background: var(--bg);
+  padding: 14px 16px 10px;
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  border-bottom: 1px solid var(--line);
+}
+h1 { font-size: 24px; margin: 0; font-weight: 700; }
+h2 { font-size: 20px; margin: 0; }
+main { padding: 16px; max-width: 640px; margin: 0 auto; }
+button, input { font: inherit; color: inherit; }
+button {
+  border: 0; border-radius: var(--radius); cursor: pointer;
+  min-height: 48px; padding: 0 18px; background: var(--card2);
+}
+button:active { transform: scale(.97); }
+.primary { background: var(--accent); color: var(--accent-ink); font-weight: 700; }
+.ghost { background: transparent; color: var(--muted); }
+.danger { color: var(--danger); }
+.wide { width: 100%; }
+input {
+  background: var(--card2); border: 1px solid var(--line); border-radius: 12px;
+  min-height: 48px; padding: 0 14px; width: 100%; outline: none;
+}
+input:focus { border-color: var(--accent); }
+input[type=date] { width: auto; min-width: 150px; }
+.card {
+  background: var(--card); border-radius: var(--radius);
+  padding: 14px; margin-bottom: 14px; border: 1px solid var(--line);
+}
+.row { display: flex; gap: 10px; align-items: center; }
+.ex-head { position: relative; display: flex; gap: 8px; align-items: center; }
+.ex-name { font-weight: 600; font-size: 18px; }
+.icon-btn { min-width: 48px; padding: 0; background: transparent; color: var(--muted); font-size: 22px; }
+.last {
+  margin: 10px 0 4px; padding: 10px 12px; border-radius: 10px;
+  background: #13261a; color: #bbf7d0; font-size: 15px;
+}
+.last b { color: var(--accent); }
+.last.none { background: var(--card2); color: var(--muted); }
+.sets-head, .set {
+  display: grid; grid-template-columns: 36px 1fr 1fr 44px; gap: 8px; align-items: center;
+}
+.sets-head { color: var(--muted); font-size: 13px; margin: 10px 0 4px; text-transform: uppercase; letter-spacing: .04em; }
+.set { margin-bottom: 8px; }
+.set-no { color: var(--muted); text-align: center; font-weight: 600; }
+.set input { text-align: center; font-size: 20px; font-weight: 600; padding: 0 6px; }
+.suggest {
+  position: absolute; left: 0; right: 56px; top: 52px; z-index: 4;
+  background: var(--card2); border: 1px solid var(--line); border-radius: 12px; overflow: hidden;
+  box-shadow: 0 10px 30px rgba(0,0,0,.5);
+}
+.suggest button {
+  display: block; width: 100%; text-align: left; border-radius: 0; background: transparent;
+  border-bottom: 1px solid var(--line);
+}
+.suggest button:last-child { border-bottom: 0; }
+.muted { color: var(--muted); }
+.empty { text-align: center; color: var(--muted); padding: 40px 10px; }
+.list-item {
+  width: 100%; text-align: left; display: flex; justify-content: space-between; align-items: center;
+  background: var(--card); border: 1px solid var(--line); margin-bottom: 10px; min-height: 64px;
+}
+.list-item small { color: var(--muted); display: block; font-size: 14px; }
+.session { padding: 12px 14px; }
+.session-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.chip { background: var(--card2); border-radius: 8px; padding: 4px 10px; font-size: 15px; font-weight: 600; }
+nav {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;
+  display: grid; grid-template-columns: repeat(3, 1fr);
+  background: #12151b; border-top: 1px solid var(--line);
+  padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
+}
+nav button { background: transparent; color: var(--muted); font-size: 14px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; min-height: 58px; }
+nav button span { font-size: 22px; line-height: 1; }
+nav button.on { color: var(--accent); }
+.stack > * + * { margin-top: 12px; }
+.toast {
+  position: fixed; left: 50%; bottom: calc(96px + env(safe-area-inset-bottom)); transform: translateX(-50%);
+  background: var(--accent); color: var(--accent-ink); font-weight: 700;
+  padding: 12px 18px; border-radius: 12px; z-index: 20;
+}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<nav>
+  <button data-tab="log"><span>🏋️</span>Log</button>
+  <button data-tab="history"><span>📈</span>History</button>
+  <button data-tab="backup"><span>💾</span>Backup</button>
+</nav>
+<script>
+"use strict";
+/* ---------- storage ---------- */
+const KEY = "gymlog.v1";
+let db = load();
+function load() {
+  try { const d = JSON.parse(localStorage.getItem(KEY)); if (d && Array.isArray(d.workouts)) return d; } catch (e) {}
+  return { workouts: [] };
+}
+function save() {
+  db.workouts = db.workouts.filter(w => w.exercises.length);
+  try { localStorage.setItem(KEY, JSON.stringify(db)); } catch (e) { toast("Could not save!"); }
+}
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+const norm = s => (s || "").trim().replace(/\s+/g, " ").toLowerCase();
+const today = () => { const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 10); };
+const fmtDate = iso => new Date(iso + "T12:00:00").toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", year: "numeric" });
+const fmtShort = iso => new Date(iso + "T12:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const fmtSet = s => {
+  const r = s.reps === "" || s.reps == null ? "?" : s.reps;
+  const w = s.weight === "" || s.weight == null || Number(s.weight) === 0 ? "BW" : s.weight + " kg";
+  return `${r} × ${w}`;
+};
+const filledSets = sets => sets.filter(s => s.reps !== "" || s.weight !== "");
+
+/* ---------- state ---------- */
+let tab = "log";
+let logDate = today();
+let historyEx = null; // normalized name or null
+
+function workoutFor(date, create) {
+  let w = db.workouts.find(w => w.date === date);
+  if (!w && create) { w = { id: uid(), date, exercises: [] }; db.workouts.push(w); }
+  return w;
+}
+function allNames() {
+  // most recent spelling per normalized name, sorted by last date desc
+  const map = new Map();
+  [...db.workouts].sort((a, b) => a.date.localeCompare(b.date)).forEach(w =>
+    w.exercises.forEach(e => { const n = norm(e.name); if (n) map.set(n, { name: e.name.trim(), date: w.date }); }));
+  return [...map.entries()].map(([key, v]) => ({ key, ...v })).sort((a, b) => b.date.localeCompare(a.date));
+}
+function sessionsOf(key) {
+  const out = [];
+  db.workouts.forEach(w => w.exercises.forEach(e => { if (norm(e.name) === key) out.push({ w, e }); }));
+  return out.sort((a, b) => b.w.date.localeCompare(a.w.date));
+}
+function lastTime(name, beforeDate) {
+  const key = norm(name);
+  if (!key) return null;
+  return sessionsOf(key).find(s => s.w.date < beforeDate && filledSets(s.e.sets).length) || null;
+}
+
+/* ---------- render ---------- */
+const app = document.getElementById("app");
+function render() {
+  document.querySelectorAll("nav button").forEach(b => b.classList.toggle("on", b.dataset.tab === tab));
+  if (tab === "log") renderLog();
+  else if (tab === "history") renderHistory();
+  else renderBackup();
+}
+
+function lastHtml(name, date) {
+  if (!norm(name)) return "";
+  const l = lastTime(name, date);
+  if (!l) return `<div class="last none">First time logging this exercise</div>`;
+  return `<div class="last"><b>Last time (${fmtShort(l.w.date)}):</b> ${filledSets(l.e.sets).map(fmtSet).join(" · ")}</div>`;
+}
+
+function renderLog() {
+  const w = workoutFor(logDate, false);
+  const exs = w ? w.exercises : [];
+  app.innerHTML = `
+    <header>
+      <h1>Workout</h1>
+      <input type="date" id="date" value="${logDate}" max="${today()}">
+    </header>
+    <main>
+      ${logDate !== today() ? `<p class="muted" style="margin-top:0">Logging for ${fmtDate(logDate)}</p>` : ""}
+      ${exs.length ? "" : `<div class="empty">No exercises yet.<br>Tap “+ Exercise” to start.</div>`}
+      ${exs.map((e, i) => `
+        <div class="card" data-ex="${e.id}">
+          <div class="ex-head">
+            <input class="ex-name" placeholder="Exercise name" value="${esc(e.name)}" autocomplete="off" autocapitalize="words" ${!e.name ? "data-autofocus" : ""}>
+            <button class="icon-btn" data-act="del-ex" aria-label="Delete exercise">🗑</button>
+          </div>
+          <div class="last-wrap">${lastHtml(e.name, logDate)}</div>
+          <div class="sets-head"><span style="text-align:center">Set</span><span style="text-align:center">Reps</span><span style="text-align:center">kg</span><span></span></div>
+          ${e.sets.map((s, j) => `
+            <div class="set" data-set="${j}">
+              <div class="set-no">${j + 1}</div>
+              <input inputmode="numeric" pattern="[0-9]*" data-f="reps" value="${esc(s.reps)}" placeholder="0">
+              <input inputmode="decimal" data-f="weight" value="${esc(s.weight)}" placeholder="BW">
+              <button class="icon-btn" data-act="del-set" aria-label="Delete set">✕</button>
+            </div>`).join("")}
+          <button class="wide" data-act="add-set">+ Set</button>
+        </div>`).join("")}
+      <button class="primary wide" id="add-ex">+ Exercise</button>
+      ${exs.length ? `<button class="ghost danger wide" id="del-workout" style="margin-top:20px">Delete this whole workout</button>` : ""}
+    </main>`;
+
+  document.getElementById("date").onchange = ev => { logDate = ev.target.value || today(); render(); };
+  document.getElementById("add-ex").onclick = () => {
+    workoutFor(logDate, true).exercises.push({ id: uid(), name: "", sets: [{ reps: "", weight: "" }] });
+    save(); render();
+    const el = app.querySelector("[data-autofocus]"); if (el) el.focus();
+  };
+  const dw = document.getElementById("del-workout");
+  if (dw) dw.onclick = () => {
+    if (!confirm(`Delete the whole workout on ${fmtDate(logDate)}?`)) return;
+    db.workouts = db.workouts.filter(x => x.date !== logDate); save(); render();
+  };
+
+  app.querySelectorAll("[data-ex]").forEach(card => {
+    const ex = w.exercises.find(x => x.id === card.dataset.ex);
+    const nameIn = card.querySelector(".ex-name");
+    const head = card.querySelector(".ex-head");
+    const updateLast = () => { card.querySelector(".last-wrap").innerHTML = lastHtml(ex.name, logDate); };
+    const closeSuggest = () => { const s = head.querySelector(".suggest"); if (s) s.remove(); };
+    const showSuggest = () => {
+      closeSuggest();
+      const q = norm(nameIn.value);
+      const used = new Set(w.exercises.filter(x => x !== ex).map(x => norm(x.name)));
+      const list = allNames().filter(n => !used.has(n.key) && n.key !== q && (!q || n.key.includes(q))).slice(0, 6);
+      if (!list.length) return;
+      const box = document.createElement("div"); box.className = "suggest";
+      list.forEach(n => {
+        const b = document.createElement("button"); b.type = "button"; b.textContent = n.name;
+        b.addEventListener("pointerdown", ev => ev.preventDefault());
+        b.onclick = () => { nameIn.value = n.name; ex.name = n.name; save(); closeSuggest(); updateLast(); nameIn.blur(); };
+        box.appendChild(b);
+      });
+      head.appendChild(box);
+    };
+    nameIn.addEventListener("input", () => { ex.name = nameIn.value; save(); showSuggest(); updateLast(); });
+    nameIn.addEventListener("focus", showSuggest);
+    nameIn.addEventListener("blur", () => { setTimeout(closeSuggest, 150); ex.name = nameIn.value.trim().replace(/\s+/g, " "); nameIn.value = ex.name; save(); });
+
+    card.querySelectorAll(".set").forEach(row => {
+      const j = +row.dataset.set;
+      row.querySelectorAll("input").forEach(inp => inp.addEventListener("input", () => {
+        ex.sets[j][inp.dataset.f] = inp.value.replace(",", ".").trim(); save();
+      }));
+      row.querySelector('[data-act="del-set"]').onclick = () => {
+        const s = ex.sets[j];
+        if ((s.reps !== "" || s.weight !== "") && !confirm(`Delete set ${j + 1} (${fmtSet(s)})?`)) return;
+        ex.sets.splice(j, 1); save(); render();
+      };
+    });
+    card.querySelector('[data-act="add-set"]').onclick = () => {
+      const prev = ex.sets[ex.sets.length - 1];
+      ex.sets.push(prev ? { reps: prev.reps, weight: prev.weight } : { reps: "", weight: "" });
+      save(); render();
+    };
+    card.querySelector('[data-act="del-ex"]').onclick = () => {
+      if ((ex.name || filledSets(ex.sets).length) && !confirm(`Delete ${ex.name || "this exercise"} and all its sets?`)) return;
+      w.exercises = w.exercises.filter(x => x !== ex); save(); render();
+    };
+  });
+}
+
+function renderHistory() {
+  if (historyEx) {
+    const sessions = sessionsOf(historyEx);
+    if (!sessions.length) { historyEx = null; return renderHistory(); }
+    const title = allNames().find(n => n.key === historyEx).name;
+    app.innerHTML = `
+      <header><button class="ghost" id="back" style="padding:0 6px">‹ Back</button><h2 style="flex:1">${esc(title)}</h2></header>
+      <main>
+        <p class="muted" style="margin-top:0">${sessions.length} session${sessions.length > 1 ? "s" : ""}, newest first</p>
+        ${sessions.map(({ w, e }) => `
+          <div class="card session" data-w="${w.id}" data-e="${e.id}">
+            <div class="session-top">
+              <b>${fmtDate(w.date)}</b>
+              <div class="row">
+                <button class="ghost" data-act="edit" style="padding:0 10px">Edit</button>
+                <button class="icon-btn" data-act="del" aria-label="Delete session">🗑</button>
+              </div>
+            </div>
+            <div class="chips">${filledSets(e.sets).map(s => `<span class="chip">${fmtSet(s)}</span>`).join("") || `<span class="muted">No sets</span>`}</div>
+          </div>`).join("")}
+      </main>`;
+    document.getElementById("back").onclick = () => { historyEx = null; render(); };
+    app.querySelectorAll(".session").forEach(card => {
+      const w = db.workouts.find(x => x.id === card.dataset.w);
+      card.querySelector('[data-act="edit"]').onclick = () => { logDate = w.date; tab = "log"; render(); window.scrollTo(0, 0); };
+      card.querySelector('[data-act="del"]').onclick = () => {
+        if (!confirm(`Delete ${title} from ${fmtDate(w.date)}?`)) return;
+        w.exercises = w.exercises.filter(x => x.id !== card.dataset.e); save(); render();
+      };
+    });
+    return;
+  }
+  const names = allNames().filter(n => sessionsOf(n.key).some(s => filledSets(s.e.sets).length));
+  app.innerHTML = `
+    <header><h1>History</h1></header>
+    <main>
+      ${names.length ? names.map(n => {
+        const c = sessionsOf(n.key).length;
+        return `<button class="list-item" data-key="${esc(n.key)}">
+          <span><b>${esc(n.name)}</b><small>${c} session${c > 1 ? "s" : ""} · last ${fmtShort(n.date)}</small></span>
+          <span class="muted">›</span></button>`;
+      }).join("") : `<div class="empty">Nothing logged yet.<br>Your exercises will appear here.</div>`}
+    </main>`;
+  app.querySelectorAll("[data-key]").forEach(b => b.onclick = () => { historyEx = b.dataset.key; render(); window.scrollTo(0, 0); });
+}
+
+function renderBackup() {
+  const n = db.workouts.length;
+  app.innerHTML = `
+    <header><h1>Backup</h1></header>
+    <main class="stack">
+      <div class="card stack">
+        <div><b>Export</b><br><span class="muted">Saves all ${n} workout${n === 1 ? "" : "s"} as one file. Save it to iCloud Drive or Files. Do this regularly.</span></div>
+        <button class="primary wide" id="export">Export backup</button>
+      </div>
+      <div class="card stack">
+        <div><b>Import</b><br><span class="muted">Restores from a backup file. This replaces everything currently in the app.</span></div>
+        <button class="wide" id="import">Import backup</button>
+        <input type="file" id="file" accept=".json,application/json" hidden>
+      </div>
+      <p class="muted" style="font-size:14px">Your data is stored only on this phone. Deleting the app from your home screen erases it, so keep a recent backup.</p>
+    </main>`;
+  document.getElementById("export").onclick = async () => {
+    const name = `gym-log-backup-${today()}.json`;
+    const blob = new Blob([JSON.stringify(db, null, 1)], { type: "application/json" });
+    const file = new File([blob], name, { type: "application/json" });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try { await navigator.share({ files: [file], title: name }); return; }
+      catch (e) { if (e.name === "AbortError") return; }
+    }
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+  };
+  const fileIn = document.getElementById("file");
+  document.getElementById("import").onclick = () => fileIn.click();
+  fileIn.onchange = () => {
+    const f = fileIn.files[0]; if (!f) return;
+    const r = new FileReader();
+    r.onload = () => {
+      try {
+        const d = JSON.parse(r.result);
+        if (!d || !Array.isArray(d.workouts)) throw 0;
+        if (!confirm(`Replace current data with ${d.workouts.length} workouts from this backup?`)) return;
+        db = d; save(); toast("Backup restored"); render();
+      } catch (e) { alert("That file isn't a gym-log backup."); }
+    };
+    r.readAsText(f);
+  };
+}
+
+function toast(msg) {
+  const t = document.createElement("div"); t.className = "toast"; t.textContent = msg;
+  document.body.appendChild(t); setTimeout(() => t.remove(), 2000);
+}
+
+document.querySelectorAll("nav button").forEach(b => b.onclick = () => {
+  tab = b.dataset.tab; if (tab === "history") historyEx = null; if (tab === "log") logDate = logDate || today();
+  render(); window.scrollTo(0, 0);
+});
+render();
+
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
+</script>
+</body>
+</html>
