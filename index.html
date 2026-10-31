@@ -392,11 +392,11 @@ function lastHtml(name, date) {
 }
 
 let openEx = null; // id of the exercise being edited on the Log screen
-const COMMON_SPLITS = ["Push", "Pull", "Legs", "Upper", "Lower", "Full body"];
+const COMMON_SPLITS = ["Push", "Pull", "Legs", "Upper", "Lower", "Full body", "Chest & Back", "Shoulders & Arms"];
 function splitChoices(current) {
   const out = [], seen = new Set([norm(current)]);
   pastSplits().concat(COMMON_SPLITS).forEach(x => { if (!seen.has(norm(x))) { seen.add(norm(x)); out.push(x); } });
-  return out.slice(0, 8);
+  return out.slice(0, 10);
 }
 const fmtDur = m => m >= 60 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${m} min`;
 function markStart() { const w = cur(false); if (w && !w.startedAt && !w.savedAt) { w.startedAt = Date.now(); } }
