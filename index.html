@@ -191,6 +191,16 @@ textarea:focus { border-color: var(--accent); }
 .check-item { display: grid; grid-template-columns: 24px 1fr; gap: 8px; align-items: start; padding: 10px 12px; border-radius: 10px; background: var(--card2); font-size: 15px; line-height: 1.4; }
 .ck-warn { background: #2a2208; color: #fde68a; } .ck-warn b { color: #fbbf24; }
 .ck-win { background: #2a2208; } .ck-good { background: #13261a; } .ck-tip { background: #16202e; }
+.mode-seg { margin: 10px 0 6px; }
+.mode-seg button { min-height: 36px; font-size: 14px; }
+.sets-head.time, .set.time { grid-template-columns: 36px 1fr 44px; }
+.wcell { position: relative; }
+.pct { position: absolute; right: 6px; top: 3px; font-size: 11px; font-weight: 700; color: var(--accent); pointer-events: none; }
+.max-add { min-height: 36px; padding: 0 2px; font-size: 14px; color: #fbbf24; }
+.max-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin: 6px 0 2px; padding: 8px 12px; background: #2a2208; border: 1px solid #5b4710; border-radius: 10px; color: #fde68a; font-size: 15px; }
+.max-row > div > b { color: #fbbf24; }
+.max-guide { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 13px; margin-top: 2px; font-variant-numeric: tabular-nums; }
+.max-guide b { color: #fde68a; }
 .modal-bg { position: fixed; inset: 0; z-index: 30; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; padding: 24px; }
 .modal { background: var(--card); border: 1px solid var(--line); border-radius: 18px; padding: 20px; width: 100%; max-width: 360px; }
 .modal p { margin: 0 0 18px; font-size: 18px; font-weight: 600; text-wrap: balance; }
@@ -241,12 +251,24 @@ const today = () => { const d = new Date(); d.setMinutes(d.getMinutes() - d.getT
 const fmtDate = iso => new Date(iso + "T12:00:00").toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", year: "numeric" });
 const fmtShort = iso => new Date(iso + "T12:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short" });
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const hasMin = s => s.min != null && s.min !== "";
+const CARDIO_RE = /\b(cardio|run|running|jog|jogging|treadmill|bike|biking|cycling|cykel|spinning|elliptical|cross ?trainer|stairmaster|stairs?|walk|walking|rowing machine|rower|erg|swim|swimming|jump rope|skipping|hiit|löpning|löpband|promenad|simning)\b/;
+const isTimed = e => e.kind ? e.kind === "time" : CARDIO_RE.test(norm(e.name));
+const maxOf = name => num((db.maxes || {})[norm(name)]);
+const pctOf = (s, max) => max > 0 && num(s.weight) > 0 ? Math.round(num(s.weight) / max * 100) : 0;
+const fmtSetP = (s, max) => { const p = pctOf(s, max); return fmtSet(s) + (p ? ` (${p}%)` : ""); };
+const est1RM = name => {
+  let best = 0;
+  sessionsOf(norm(name)).forEach(x => filledSets(x.e.sets).forEach(y => { const w = num(y.weight), r = num(y.reps); if (w > 0 && r > 0 && r <= 12) best = Math.max(best, r === 1 ? w : w * (1 + r / 30)); }));
+  return Math.round(best * 2) / 2;
+};
 const fmtSet = s => {
+  if (hasMin(s) && (s.reps === "" || s.reps == null) && (s.weight === "" || s.weight == null)) return `${s.min} min`;
   const r = s.reps === "" || s.reps == null ? "?" : s.reps;
   const w = s.weight === "" || s.weight == null || Number(s.weight) === 0 ? "BW" : s.weight + " kg";
   return `${r} × ${w}`;
 };
-const filledSets = sets => sets.filter(s => s.reps !== "" || s.weight !== "");
+const filledSets = sets => sets.filter(s => s.reps !== "" || s.weight !== "" || hasMin(s));
 
 /* ---------- state ---------- */
 let tab = "log";
@@ -265,7 +287,8 @@ const num = v => { const n = parseFloat(v); return isFinite(n) ? n : 0; };
 const METRICS = {
   weight: { label: "Heaviest", unit: "kg", per: sets => Math.max(0, ...sets.map(s => num(s.weight))), agg: "max" },
   volume: { label: "Volume", unit: "kg", per: sets => sets.reduce((t, s) => t + num(s.reps) * num(s.weight), 0), agg: "sum" },
-  reps:   { label: "Most reps", unit: "reps", per: sets => Math.max(0, ...sets.map(s => num(s.reps))), agg: "max" }
+  reps:   { label: "Most reps", unit: "reps", per: sets => Math.max(0, ...sets.map(s => num(s.reps))), agg: "max" },
+  minutes: { label: "Minutes", unit: "min", per: sets => sets.reduce((t, s) => t + num(s.min), 0), agg: "sum" }
 };
 const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 function periodOf(date, group) {
@@ -318,10 +341,11 @@ function chartSvg(pts, unit, goal) {
 let curMetric = "weight";
 function chartHtml(key) {
   const anyWeight = sessionsOf(key).some(s => s.e.sets.some(x => num(x.weight) > 0));
-  const metric = curMetric = anyWeight ? (prefs.metric || "weight") : "reps";
+  const anyTime = sessionsOf(key).some(s => s.e.sets.some(hasMin));
+  const metric = curMetric = anyTime ? "minutes" : anyWeight ? (prefs.metric || "weight") : "reps";
   const group = prefs.group, m = METRICS[metric];
   const pts = chartPoints(key, metric, group);
-  const metricBtns = (anyWeight ? ["weight", "volume", "reps"] : ["reps"])
+  const metricBtns = (anyTime ? ["minutes"] : anyWeight ? ["weight", "volume", "reps"] : ["reps"])
     .map(k => `<button data-metric="${k}" class="${k === metric ? "on" : ""}">${METRICS[k].label}</button>`).join("");
   const groupBtns = [["day", "Day"], ["month", "Month"], ["year", "Year"]]
     .map(([k, l]) => `<button data-group="${k}" class="${k === group ? "on" : ""}">${l}</button>`).join("");
@@ -337,11 +361,11 @@ function chartHtml(key) {
         <div><small>Change</small><b class="${d > 0 ? "up" : d < 0 ? "down" : ""}">${d > 0 ? "+" : ""}${fmtNum(d)}</b></div>
       </div>`;
   }
-  const note = { weight: "heaviest set", volume: group === "day" ? "reps × kg, all sets" : `reps × kg, total per ${group}`, reps: "most reps in one set" }[metric];
+  const note = { weight: "heaviest set", volume: group === "day" ? "reps × kg, all sets" : `reps × kg, total per ${group}`, reps: "most reps in one set", minutes: group === "day" ? "total minutes" : `total minutes per ${group}` }[metric];
   return `<div class="card" id="chart-card">
     <div class="seg" style="margin-bottom:8px">${metricBtns}</div>
     <div class="seg">${groupBtns}</div>
-    <p class="muted" style="font-size:13px;margin:8px 0 0;text-align:center">${m.label}: ${note}${group !== "day" && metric !== "volume" ? `, best per ${group}` : ""}</p>
+    <p class="muted" style="font-size:13px;margin:8px 0 0;text-align:center">${m.label}: ${note}${group !== "day" && metric !== "volume" && metric !== "minutes" ? `, best per ${group}` : ""}</p>
     ${body}</div>`;
 }
 function wireChart(key) {
@@ -425,7 +449,9 @@ function checkWorkout(w) {
   if (!exs.length) return [{ k: "info", t: "Log at least one set and I can check your workout." }];
   // 1. muscles hit today
   const hit = new Set(), unknown = [];
-  exs.forEach(e => { const L = libEntry(e.name); if (L) L.m.forEach(x => hit.add(x)); else unknown.push(e.name); });
+  exs.forEach(e => { const L = libEntry(e.name); if (L) L.m.forEach(x => hit.add(x)); else if (!e.sets.some(hasMin)) unknown.push(e.name); });
+  const cardioMin = exs.reduce((t, e) => t + e.sets.reduce((a, x) => a + num(x.min), 0), 0);
+  if (cardioMin) out.push({ k: "good", t: `<b>Cardio / timed:</b> ${fmtNum(cardioMin)} min` });
   if (hit.size) out.push({ k: "good", t: `<b>Trained today:</b> ${list([...hit].map(x => MUSCLE_NAMES[x]))}` });
   // 2. data mistakes
   exs.forEach(e => {
@@ -434,7 +460,7 @@ function checkWorkout(w) {
       if (x.reps === "" && x.weight !== "") out.push({ k: "warn", t: `<b>${esc(e.name)}</b>, set ${i + 1} has weight but no reps.` });
       else if (prevW && x.reps !== "" && !(num(x.weight) > 0)) out.push({ k: "warn", t: `<b>${esc(e.name)}</b>, set ${i + 1} has no weight. You usually use weight here.` });
     });
-    if (filledSets(e.sets).length === 1) out.push({ k: "info", t: `Only 1 set of <b>${esc(e.name)}</b>. Was that the plan?` });
+    if (filledSets(e.sets).length === 1 && !e.sets.some(hasMin)) out.push({ k: "info", t: `Only 1 set of <b>${esc(e.name)}</b>. Was that the plan?` });
   });
   // 3. compared with last same-split day
   const others = db.workouts.filter(x => x !== w && x.exercises.length && x.date <= w.date).sort((a, b) => b.date.localeCompare(a.date) || (b.savedAt || 0) - (a.savedAt || 0));
@@ -476,6 +502,12 @@ function showCheck(w) {
     <div class="check-list">${items.map(x => `<div class="check-item ck-${x.k}"><span>${icon[x.k]}</span><span>${x.t}</span></div>`).join("")}</div>
     <button class="wide primary" data-close style="margin-top:14px">Got it</button>`);
 }
+function maxHtml(name) {
+  if (!norm(name)) return "";
+  const m = maxOf(name);
+  if (!m) return `<button class="ghost max-add" data-act="max">💪 Set your max (1RM) to see % per set</button>`;
+  return `<div class="max-row"><div><b>💪 Max ${fmtNum(m)} kg</b><div class="max-guide">${[60, 70, 80, 90].map(p => `<span>${p}% <b>${fmtNum(Math.round(m * p / 100 * 2) / 2)}</b></span>`).join("")}</div></div><button class="ghost cues-edit" data-act="max">Edit</button></div>`;
+}
 function cuesFor(name) { const own = (db.cues || {})[norm(name)]; return own && own.length ? { list: own, own: true } : (builtinCues(name) ? { list: builtinCues(name), own: false } : null); }
 function cuesHtml(name) {
   if (!norm(name)) return "";
@@ -511,7 +543,7 @@ const fmtDur = m => m >= 60 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${m} mi
 function markStart() { const w = cur(false); if (w && !w.startedAt && !w.savedAt) { w.startedAt = Date.now(); } }
 // progress vs history for one exercise in workout w: {delta, pr, unit}
 function progressOf(e, w) {
-  const sets = filledSets(e.sets); if (!sets.length || !norm(e.name)) return null;
+  const sets = filledSets(e.sets); if (!sets.length || !norm(e.name) || sets.some(hasMin)) return null;
   const prev = sessionsOf(norm(e.name)).filter(s => s.w !== w && s.w.date <= w.date && filledSets(s.e.sets).length);
   if (!prev.length) return null;
   const anyW = sets.some(x => num(x.weight) > 0) || prev.some(s => s.e.sets.some(x => num(x.weight) > 0));
@@ -593,8 +625,8 @@ function repeatPicker() {
     let n = 0;
     src.exercises.forEach(e => {
       if (!norm(e.name) || have.has(norm(e.name))) return;
-      const sets = filledSets(e.sets).map(x => ({ reps: x.reps, weight: x.weight }));
-      dst.exercises.push({ id: uid(), name: e.name, sets: sets.length ? sets : [{ reps: "", weight: "" }] }); n++;
+      const sets = filledSets(e.sets).map(x => ({ reps: x.reps, weight: x.weight, ...(hasMin(x) ? { min: x.min } : {}) }));
+      dst.exercises.push({ id: uid(), name: e.name, ...(e.kind ? { kind: e.kind } : {}), sets: sets.length ? sets : [{ reps: "", weight: "" }] }); n++;
     });
     if (!(dst.split || "").trim() && src.split) dst.split = src.split;
     save(); sh.close(); render();
@@ -613,6 +645,8 @@ async function renameExercise(key) {
     if (!(await ask(`Merge “${cur.name}” into “${target.name}”? Its ${c} session${c > 1 ? "s" : ""} will move over.`, "Merge"))) return;
   }
   const finalName = target ? target.name : name;
+  if (db.maxes && db.maxes[key] && !db.maxes[nk]) { db.maxes[nk] = db.maxes[key]; delete db.maxes[key]; }
+  if (db.cues && db.cues[key] && !db.cues[nk]) { db.cues[nk] = db.cues[key]; delete db.cues[key]; }
   db.workouts.forEach(w => {
     const hits = w.exercises.filter(e => norm(e.name) === key || norm(e.name) === nk);
     hits.forEach(e => e.name = finalName);
@@ -631,7 +665,7 @@ function closeOpen() {
     const ex = w.exercises.find(x => x.id === openEx);
     if (ex) {
       ex.name = ex.name.trim().replace(/\s+/g, " ");
-      ex.sets = ex.sets.filter(s => s.reps !== "" || s.weight !== "");
+      ex.sets = filledSets(ex.sets);
       if (!ex.name && !ex.sets.length) w.exercises = w.exercises.filter(x => x !== ex);
       else if (!ex.sets.length) ex.sets.push({ reps: "", weight: "" });
     }
@@ -666,7 +700,7 @@ function renderLog() {
         <button class="done-row" data-open="${e.id}">
           <span class="dr-text">
             <span class="pick-top"><b>${esc(e.name || "Unnamed exercise")}</b>${w ? badgeHtml(e, w) : ""}</span>
-            <span class="dr-sets">${filledSets(e.sets).map(fmtSet).join(" · ") || "No sets yet"}</span>
+            <span class="dr-sets">${filledSets(e.sets).map(x => fmtSetP(x, maxOf(e.name))).join(" · ") || "No sets yet"}</span>
           </span>
           <span class="dr-edit">Edit</span>
         </button>` : "").join("")}
@@ -679,12 +713,19 @@ function renderLog() {
           </div>
           <div class="last-wrap">${lastHtml(e.name, logDate)}</div>
           <div class="cues-wrap">${cuesHtml(e.name)}</div>
-          <div class="sets-head"><span style="text-align:center">Set</span><span style="text-align:center">Reps</span><span style="text-align:center">kg</span><span></span></div>
-          ${e.sets.map((s, j) => `
+          <div class="seg mode-seg"><button data-mode="lift" class="${isTimed(e) ? "" : "on"}">Reps × kg</button><button data-mode="time" class="${isTimed(e) ? "on" : ""}">⏱ Time</button></div>
+          ${isTimed(e) ? "" : `<div class="max-wrap">${maxHtml(e.name)}</div>`}
+          ${isTimed(e) ? `<div class="sets-head time"><span style="text-align:center">Set</span><span style="text-align:center">Minutes</span><span></span></div>` : `<div class="sets-head"><span style="text-align:center">Set</span><span style="text-align:center">Reps</span><span style="text-align:center">kg</span><span></span></div>`}
+          ${e.sets.map((s, j) => isTimed(e) ? `
+            <div class="set time" data-set="${j}">
+              <div class="set-no">${j + 1}</div>
+              <input inputmode="decimal" data-f="min" value="${esc(s.min ?? "")}" placeholder="min">
+              <button class="icon-btn" data-act="del-set" aria-label="Delete set">✕</button>
+            </div>` : `
             <div class="set" data-set="${j}">
               <div class="set-no">${j + 1}</div>
               <input inputmode="numeric" pattern="[0-9]*" data-f="reps" value="${esc(s.reps)}" placeholder="0">
-              <input inputmode="decimal" data-f="weight" value="${esc(s.weight)}" placeholder="BW">
+              <div class="wcell"><input inputmode="decimal" data-f="weight" value="${esc(s.weight)}" placeholder="BW"><span class="pct">${pctOf(s, maxOf(e.name)) ? pctOf(s, maxOf(e.name)) + "%" : ""}</span></div>
               <button class="icon-btn" data-act="del-set" aria-label="Delete set">✕</button>
             </div>`).join("")}
           <div class="row"><button class="wide" data-act="add-set">+ Set</button><button class="wide primary" data-act="done">Done</button></div>
@@ -739,7 +780,7 @@ function renderLog() {
       const e2 = card.querySelector('[data-act="edit-cues"]'); if (e2) e2.onclick = () => { ex.name = ex.name.trim(); save(); editCues(ex.name); };
     };
     wireCues();
-    const updateLast = () => { card.querySelector(".last-wrap").innerHTML = lastHtml(ex.name, logDate); card.querySelector(".cues-wrap").innerHTML = cuesHtml(ex.name); wireCues(); };
+    const updateLast = () => { const mw = card.querySelector(".max-wrap"); if (mw && !isTimed(ex)) mw.innerHTML = maxHtml(ex.name); card.querySelector(".last-wrap").innerHTML = lastHtml(ex.name, logDate); card.querySelector(".cues-wrap").innerHTML = cuesHtml(ex.name); wireCues(); };
     const closeSuggest = () => { const s = head.querySelector(".suggest"); if (s) s.remove(); };
     const showSuggest = () => {
       closeSuggest();
@@ -765,23 +806,44 @@ function renderLog() {
     };
     nameIn.addEventListener("input", () => { ex.name = nameIn.value; save(); showSuggest(); updateLast(); });
     nameIn.addEventListener("focus", showSuggest);
-    nameIn.addEventListener("blur", () => { setTimeout(closeSuggest, 150); ex.name = nameIn.value.trim().replace(/\s+/g, " "); nameIn.value = ex.name; save(); });
+    const timedAtOpen = isTimed(ex);
+    nameIn.addEventListener("blur", () => {
+      setTimeout(closeSuggest, 150); ex.name = nameIn.value.trim().replace(/\s+/g, " "); nameIn.value = ex.name; save();
+      if (!ex.kind && isTimed(ex) !== timedAtOpen && !filledSets(ex.sets).length) setTimeout(() => { render(); const c = app.querySelector(".open-card"); if (c) c.scrollIntoView({ block: "center" }); }, 0);
+    });
 
     card.querySelectorAll(".set").forEach(row => {
       const j = +row.dataset.set;
       row.querySelectorAll("input").forEach(inp => inp.addEventListener("input", () => {
         ex.sets[j][inp.dataset.f] = inp.value.replace(",", ".").trim(); markStart(); save();
+        const pt = row.querySelector(".pct"); if (pt) { const v = pctOf(ex.sets[j], maxOf(ex.name)); pt.textContent = v ? v + "%" : ""; }
       }));
       row.querySelector('[data-act="del-set"]').onclick = async () => {
         const s = ex.sets[j];
-        if ((s.reps !== "" || s.weight !== "") && !(await ask(`Delete set ${j + 1} (${fmtSet(s)})?`))) return;
+        if (filledSets([s]).length && !(await ask(`Delete set ${j + 1} (${fmtSet(s)})?`))) return;
         ex.sets.splice(j, 1); save(); render();
       };
     });
+    card.querySelectorAll("[data-mode]").forEach(b => b.onclick = () => {
+      ex.kind = b.dataset.mode;
+      if (!filledSets(ex.sets).length) ex.sets = [{ reps: "", weight: "" }];
+      save(); render(); const c = app.querySelector(".open-card"); if (c) c.scrollIntoView({ block: "center" });
+    });
+    const mx = card.querySelector('[data-act="max"]');
+    if (mx) mx.onclick = async () => {
+      ex.name = ex.name.trim(); if (!ex.name) return toast("Name the exercise first");
+      const e1 = est1RM(ex.name), curMax = maxOf(ex.name);
+      const v = await askText(`Your max (1RM) for ${ex.name}, in kg${e1 && !curMax ? `. Estimated from your sets: about ${fmtNum(e1)} kg` : ""}. Leave empty to remove.`, curMax ? String(curMax) : e1 ? String(e1) : "", "Save max");
+      if (v == null) return;
+      const m = parseFloat(v.replace(",", "."));
+      db.maxes = db.maxes || {};
+      if (m > 0) db.maxes[norm(ex.name)] = Math.round(m * 10) / 10; else delete db.maxes[norm(ex.name)];
+      save(); render(); const c = app.querySelector(".open-card"); if (c) c.scrollIntoView({ block: "center" });
+    };
     card.querySelector('[data-act="done"]').onclick = () => { closeOpen(); render(); window.scrollTo(0, 0); };
     card.querySelector('[data-act="add-set"]').onclick = () => {
       const prev = ex.sets[ex.sets.length - 1];
-      ex.sets.push(prev ? { reps: prev.reps, weight: prev.weight } : { reps: "", weight: "" });
+      ex.sets.push(prev ? { reps: prev.reps, weight: prev.weight, ...(hasMin(prev) ? { min: prev.min } : {}) } : { reps: "", weight: "" });
       save(); render();
     };
     card.querySelector('[data-act="del-ex"]').onclick = async () => {
@@ -953,9 +1015,9 @@ function bodyweightHtml() {
 function exerciseProgressHtml() {
   const rows = allNames().map(n => {
     const s = sessionsOf(n.key).filter(x => filledSets(x.e.sets).length).reverse();
-    const anyW = s.some(x => x.e.sets.some(y => num(y.weight) > 0));
-    const vals = s.map(x => Math.max(0, ...filledSets(x.e.sets).map(y => num(anyW ? y.weight : y.reps))));
-    return { ...n, vals, unit: anyW ? "kg" : "reps", count: s.length };
+    const anyW = s.some(x => x.e.sets.some(y => num(y.weight) > 0)), anyT = s.some(x => x.e.sets.some(hasMin));
+    const vals = s.map(x => anyT ? filledSets(x.e.sets).reduce((t, y) => t + num(y.min), 0) : Math.max(0, ...filledSets(x.e.sets).map(y => num(anyW ? y.weight : y.reps))));
+    return { ...n, vals, unit: anyT ? "min" : anyW ? "kg" : "reps", count: s.length };
   }).filter(r => r.count >= 2).sort((a, b) => b.count - a.count).slice(0, 8);
   if (!rows.length) return `<div class="card"><div class="stat-head"><b>Exercise progress</b></div><p class="muted" style="margin:8px 0 0">Log an exercise in two workouts and its progress curve shows up here.</p></div>`;
   const spark = v => {
