@@ -206,7 +206,29 @@ textarea:focus { border-color: var(--accent); }
 .max-auto { font-size: 12px; font-weight: 600; color: #c9a54a; }
 .max-hint { margin: 6px 0 2px; font-size: 14px; color: var(--muted); }
 .link-inline { min-height: 0; padding: 0; font-size: 14px; color: #fbbf24; font-weight: 600; }
-.modal-bg { position: fixed; inset: 0; z-index: 30; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; padding: 24px; }
+.hiit-btn { background: #2a1408; color: #fdba74; border: 1px solid #5b2d10; font-weight: 700; }
+.hiit-level { font-size: 13px; color: #fdba74; }
+.hiit-ov { position: fixed; inset: 0; z-index: 40; display: flex; flex-direction: column; gap: 14px; background: var(--bg); color: var(--text);
+  padding: calc(16px + env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) calc(16px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); transition: background .3s; }
+.hiit-ov[data-k="work"], .hiit-ov[data-k="emom"] { background: #0f2a18; }
+.hiit-ov[data-k="rest"] { background: #10182a; }
+.hiit-ov[data-k="easy"] { background: #10182a; } .hiit-ov[data-k="medium"] { background: #2a2208; }
+.hiit-top { display: flex; justify-content: space-between; align-items: center; font-size: 17px; color: var(--muted); }
+.hiit-top b { color: var(--text); }
+.hiit-mid { flex: 1; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; gap: 8px; }
+.hiit-phase { font-size: 22px; font-weight: 800; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); }
+.hiit-ov[data-k="work"] .hiit-phase, .hiit-ov[data-k="emom"] .hiit-phase { color: var(--accent); }
+.hiit-ov[data-k="rest"] .hiit-phase, .hiit-ov[data-k="easy"] .hiit-phase { color: #93c5fd; }
+.hiit-ov[data-k="medium"] .hiit-phase { color: #fbbf24; }
+.hiit-clock { font-size: 112px; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
+.hiit-move { font-size: 24px; font-weight: 700; max-width: 22ch; text-wrap: balance; }
+.hiit-tip, .hiit-round { color: var(--muted); font-size: 15px; }
+.hiit-next { background: rgba(255,255,255,.06); border-radius: 12px; padding: 12px 14px; font-size: 15px; color: var(--muted); }
+.hiit-next b { color: var(--text); }
+.hiit-bar { height: 6px; background: rgba(255,255,255,.1); border-radius: 3px; overflow: hidden; }
+.hiit-bar i { display: block; height: 100%; background: var(--accent); width: 0; }
+.hiit-ctrl button { min-height: 56px; font-weight: 700; }
+.modal-bg { position: fixed; inset: 0; z-index: 50; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; padding: 24px; }
 .modal { background: var(--card); border: 1px solid var(--line); border-radius: 18px; padding: 20px; width: 100%; max-width: 360px; }
 .modal p { margin: 0 0 18px; font-size: 18px; font-weight: 600; text-wrap: balance; }
 .danger-fill { background: var(--danger); color: #2a0707; font-weight: 700; }
@@ -621,6 +643,161 @@ function saveWorkout() {
     <div class="row" style="margin-top:16px"><button class="wide" data-close>Close</button><button class="wide primary" id="see-history">See History</button></div>`);
   sh.el.querySelector("#see-history").onclick = () => { sh.close(); tab = "history"; prefs.histView = "workouts"; savePrefs(); historyEx = null; historyW = w.id; render(); window.scrollTo(0, 0); };
 }
+/* ---------- HIIT ---------- */
+const WARM = [{ k: "warm", label: "Warm-up", move: "Easy jog on the spot, arm circles, light jumping jacks", secs: 180 }];
+const rest = (secs, label = "Rest") => ({ k: "rest", label, move: "Breathe, walk around", secs });
+function hiitSteps(id) {
+  const out = [...WARM];
+  if (id === "tabata") {
+    const moves = ["High knees", "Mountain climbers", "Squat jumps"];
+    moves.forEach((m, b) => {
+      for (let i = 0; i < 8; i++) { out.push({ k: "work", label: "Work", move: m, secs: 20, round: `Block ${b + 1}/3 · ${i + 1}/8` }); out.push(rest(10)); }
+      if (b < 2) out[out.length - 1] = rest(60, "Block rest");
+    });
+  } else if (id === "3030") {
+    const moves = ["Burpees", "Jump lunges", "Plank jacks", "Skaters", "Fast feet"];
+    for (let r = 0; r < 3; r++) {
+      moves.forEach((m, i) => { out.push({ k: "work", label: "Work", move: m, secs: 30, round: `Round ${r + 1}/3 · ${i + 1}/5` }); out.push(rest(30)); });
+      if (r < 2) out[out.length - 1] = rest(60, "Round rest");
+    }
+  } else if (id === "cph") {
+    for (let r = 0; r < 3; r++) {
+      for (let i = 0; i < 5; i++) {
+        const round = `Round ${r + 1}/3 · ${i + 1}/5`;
+        out.push({ k: "easy", label: "Easy", move: "Easy pace (about 4–5 of 10)", secs: 30, round });
+        out.push({ k: "medium", label: "Medium", move: "Moderate pace (about 6–7 of 10)", secs: 20, round });
+        out.push({ k: "work", label: "All out!", move: "Sprint (9–10 of 10)", secs: 10, round });
+      }
+      if (r < 2) out.push(rest(120, "Round rest"));
+    }
+  } else if (id === "ladder") {
+    for (let r = 0; r < 3; r++) {
+      [[20, 40], [30, 30], [40, 30]].forEach(([w, rr], i) => { out.push({ k: "work", label: "Work", move: "Sprint, bike or burpees", secs: w, round: `Round ${r + 1}/3 · step ${i + 1}/3` }); out.push(rest(rr)); });
+    }
+  } else if (id === "emom") {
+    const moves = ["15 squats", "12 push-ups", "10 sit-ups", "8 burpees"];
+    for (let m = 0; m < 20; m++) out.push({ k: "emom", label: "EMOM", move: moves[m % 4], secs: 60, round: `Minute ${m + 1}/20`, tip: "Do the reps, rest for the rest of the minute" });
+  } else if (id === "amrap") {
+    for (let r = 0; r < 3; r++) {
+      out.push({ k: "work", label: "AMRAP", move: "10 jumping lunges · 10 plank shoulder taps · 10 bicycle crunches", secs: 180, round: `Round ${r + 1}/3`, tip: "As many rounds as you can, no rest" });
+      if (r < 2) out.push(rest(90));
+    }
+  }
+  return out;
+}
+const HIIT = [
+  { id: "tabata", name: "Tabata", level: "Beginner–medium", desc: "20 s hard, 10 s rest × 8, for 3 blocks: high knees, mountain climbers, squat jumps." },
+  { id: "3030", name: "30:30 Intervals", level: "Beginner", desc: "30 s on, 30 s off. 3 rounds of burpees, jump lunges, plank jacks, skaters, fast feet." },
+  { id: "cph", name: "Copenhagen 30:20:10", level: "All levels", desc: "On a run, bike or rower: 30 s easy, 20 s medium, 10 s all-out. 3 × 5 min." },
+  { id: "ladder", name: "Ladder", level: "Medium", desc: "Work gets longer, rest gets shorter: 20/40, 30/30, 40/30. 3 rounds." },
+  { id: "emom", name: "EMOM 20", level: "Medium", desc: "Every minute: 15 squats, 12 push-ups, 10 sit-ups, 8 burpees. Rest what’s left of the minute." },
+  { id: "amrap", name: "AMRAP Burn-out", level: "Medium–hard", desc: "3 min as many rounds as possible of lunges, shoulder taps, bicycle crunches. 3 rounds." }
+];
+const fmtClock = t => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
+function hiitWeekMin() {
+  const from = isoD(new Date(Date.now() - 6 * 864e5));
+  return db.workouts.filter(w => w.date >= from).reduce((t, w) => t + w.exercises.filter(e => /^hiit/i.test(e.name)).reduce((a, e) => a + e.sets.reduce((b, x) => b + num(x.min), 0), 0), 0);
+}
+function hiitPicker() {
+  const wk = hiitWeekMin();
+  const sh = sheet(`<p>🔥 HIIT workouts</p>
+    <div class="muted" style="font-size:14px;margin:-10px 0 12px">Start with 1 session a week and build up to 2–3. HIIT this week: <b>${fmtNum(wk)} min</b>.</div>
+    <div class="pick-list">${HIIT.map(h => { const tot = hiitSteps(h.id).reduce((t, x) => t + x.secs, 0); return `<button class="pick" data-h="${h.id}">
+      <span class="pick-top"><b>${h.name}</b><span class="split-tag">${Math.round(tot / 60)} min</span></span>
+      <span class="muted">${h.desc}</span><span class="hiit-level">${h.level} · includes 3 min warm-up</span></button>`; }).join("")}</div>
+    <div class="muted" style="font-size:13px;margin-top:10px">Beginners: go hard but controlled (about 4–6 out of 10). Push harder as you get fitter. Stop if you feel dizzy or pain.</div>
+    <button class="wide" data-close style="margin-top:12px">Cancel</button>`);
+  sh.el.querySelectorAll("[data-h]").forEach(b => b.onclick = () => { sh.close(); startHiit(HIIT.find(h => h.id === b.dataset.h)); });
+}
+let hiit = null;
+function beep(freq = 880, dur = 0.12, vol = 0.25) {
+  try {
+    const a = hiit && hiit.audio; if (!a) return;
+    const o = a.createOscillator(), g = a.createGain();
+    o.frequency.value = freq; o.connect(g); g.connect(a.destination);
+    g.gain.setValueAtTime(vol, a.currentTime); g.gain.exponentialRampToValueAtTime(0.001, a.currentTime + dur);
+    o.start(); o.stop(a.currentTime + dur + 0.02);
+  } catch (e) {}
+}
+function startHiit(h) {
+  const steps = hiitSteps(h.id);
+  let audio = null; try { audio = new (window.AudioContext || window.webkitAudioContext)(); audio.resume(); } catch (e) {}
+  hiit = { h, steps, i: 0, endAt: Date.now() + steps[0].secs * 1000, paused: false, left: 0, started: Date.now(), audio, lastSec: null, workSecs: 0 };
+  try { navigator.wakeLock && navigator.wakeLock.request("screen").then(l => { if (hiit) hiit.lock = l; }).catch(() => {}); } catch (e) {}
+  const el = document.createElement("div"); el.className = "hiit-ov"; el.id = "hiit-ov";
+  el.innerHTML = `<div class="hiit-top"><b>${h.name}</b><span id="h-total"></span></div>
+    <div class="hiit-mid"><div class="hiit-phase" id="h-phase"></div><div class="hiit-clock" id="h-clock"></div><div class="hiit-move" id="h-move"></div><div class="hiit-tip" id="h-tip"></div><div class="hiit-round" id="h-round"></div></div>
+    <div class="hiit-next" id="h-next"></div>
+    <div class="hiit-bar"><i id="h-bar"></i></div>
+    <div class="row hiit-ctrl"><button class="wide" id="h-pause">Pause</button><button class="wide" id="h-skip">Skip ›</button><button class="wide danger-fill" id="h-end">End</button></div>`;
+  document.body.appendChild(el);
+  el.querySelector("#h-pause").onclick = () => {
+    if (!hiit) return;
+    if (hiit.paused) { hiit.endAt = Date.now() + hiit.left; hiit.paused = false; } else { hiit.left = hiit.endAt - Date.now(); hiit.paused = true; }
+    drawHiit();
+  };
+  el.querySelector("#h-skip").onclick = () => { if (hiit) { hiit.endAt = Date.now(); if (hiit.paused) { hiit.paused = false; } tickHiit(); } };
+  el.querySelector("#h-end").onclick = async () => {
+    if (!hiit) return;
+    const wasPaused = hiit.paused; if (!wasPaused) { hiit.left = hiit.endAt - Date.now(); hiit.paused = true; } drawHiit();
+    const mins = Math.round((Date.now() - hiit.started) / 60000);
+    const ok = await ask(mins >= 1 ? `End ${h.name}? ${mins} min will be logged.` : `End ${h.name}? Less than a minute, so nothing is logged.`, "End");
+    if (!ok) { if (!wasPaused) { hiit.endAt = Date.now() + hiit.left; hiit.paused = false; } return; }
+    finishHiit(mins >= 1);
+  };
+  hiit.timer = setInterval(tickHiit, 200);
+  beep(660, 0.15); drawHiit();
+}
+function tickHiit() {
+  if (!hiit || hiit.paused) return;
+  const now = Date.now();
+  while (hiit && now >= hiit.endAt) {
+    const st = hiit.steps[hiit.i];
+    if (st.k !== "rest" && st.k !== "warm") hiit.workSecs += st.secs;
+    hiit.i++;
+    if (hiit.i >= hiit.steps.length) { beep(1046, 0.5, 0.35); try { navigator.vibrate && navigator.vibrate([200, 100, 200]); } catch (e) {} return finishHiit(true, true); }
+    hiit.endAt += hiit.steps[hiit.i].secs * 1000;
+    const k = hiit.steps[hiit.i].k;
+    beep(k === "rest" || k === "warm" ? 520 : 990, 0.35, 0.3);
+    try { navigator.vibrate && navigator.vibrate(k === "rest" ? 150 : [100, 60, 100]); } catch (e) {}
+  }
+  const left = Math.ceil((hiit.endAt - now) / 1000);
+  if (left <= 3 && left >= 1 && hiit.lastSec !== left) beep(740, 0.08, 0.2);
+  hiit.lastSec = left;
+  drawHiit();
+}
+function drawHiit() {
+  const el = document.getElementById("hiit-ov"); if (!el || !hiit) return;
+  const st = hiit.steps[hiit.i], nx = hiit.steps[hiit.i + 1];
+  const left = Math.max(0, Math.ceil(((hiit.paused ? hiit.left : hiit.endAt - Date.now())) / 1000));
+  const total = hiit.steps.reduce((t, x) => t + x.secs, 0), done = hiit.steps.slice(0, hiit.i).reduce((t, x) => t + x.secs, 0) + (st.secs - left);
+  el.dataset.k = st.k;
+  el.querySelector("#h-phase").textContent = hiit.paused ? "Paused" : st.label;
+  el.querySelector("#h-clock").textContent = fmtClock(left);
+  el.querySelector("#h-move").textContent = st.move;
+  el.querySelector("#h-tip").textContent = st.tip || "";
+  el.querySelector("#h-round").textContent = st.round || "";
+  el.querySelector("#h-next").innerHTML = nx ? `Next: <b>${esc(nx.label)}</b> · ${esc(nx.move)} · ${nx.secs} s` : "Last one. Finish strong!";
+  el.querySelector("#h-total").textContent = `${fmtClock(Math.max(0, total - done))} left`;
+  el.querySelector("#h-bar").style.width = Math.min(100, done / total * 100) + "%";
+  el.querySelector("#h-pause").textContent = hiit.paused ? "Resume" : "Pause";
+}
+function finishHiit(log, completed) {
+  if (!hiit) return;
+  const h = hiit.h, mins = Math.max(1, Math.round((Date.now() - hiit.started) / 60000));
+  clearInterval(hiit.timer); try { hiit.lock && hiit.lock.release(); } catch (e) {} try { hiit.audio && hiit.audio.close(); } catch (e) {}
+  hiit = null;
+  const el = document.getElementById("hiit-ov"); if (el) el.remove();
+  if (!log) return;
+  if (editWid) { editWid = null; logDate = today(); }
+  const w = cur(true); markStart();
+  w.exercises.push({ id: uid(), name: `HIIT: ${h.name}`, kind: "time", sets: [{ reps: "", weight: "", min: String(mins) }] });
+  if (!(w.split || "").trim()) w.split = "HIIT";
+  save(); tab = "log"; render();
+  toast(completed ? `🔥 ${h.name} done! ${mins} min logged` : `${mins} min of ${h.name} logged`);
+}
+document.addEventListener("visibilitychange", () => { if (!document.hidden && hiit) tickHiit(); });
+
 function repeatPicker() {
   const list = db.workouts.filter(x => x !== cur(false) && x.exercises.length).sort((a, b) => b.date.localeCompare(a.date)).slice(0, 25);
   const sh = sheet(`<p>Repeat a past workout</p><div class="muted" style="font-size:14px;margin:-10px 0 12px">Copies its exercises and weights into ${logDate === today() ? "today" : fmtShort(logDate)}. Change anything after.</div>
@@ -741,6 +918,7 @@ function renderLog() {
         </div>`).join("")}
       ${openEx ? "" : `<button class="primary wide" id="add-ex">+ Exercise</button>`}
       ${openEx || !db.workouts.some(x => x !== cur(false) && x.exercises.length) ? "" : `<button class="wide" id="repeat" style="margin-top:10px">↻ Repeat a past workout</button>`}
+      ${openEx ? "" : `<button class="wide hiit-btn" id="hiit" style="margin-top:10px">🔥 HIIT workout</button>`}
       ${exs.length && !openEx ? `<button class="wide" id="check-workout" style="margin-top:12px">🔍 Check my workout</button>
         <button class="save-btn wide" id="save-workout">${editWid ? "Save changes" : "Save workout"}</button>
         <div class="muted" style="font-size:13px;text-align:center;margin-top:6px">${editWid ? "You’re editing a saved workout. Changes are kept as you type." : "Your sets are kept as you type. Save to move it to History."}</div>` : ""}
@@ -763,6 +941,8 @@ function renderLog() {
   if (sv) sv.onclick = saveWorkout;
   const rp = document.getElementById("repeat");
   if (rp) rp.onclick = repeatPicker;
+  const hb = document.getElementById("hiit");
+  if (hb) hb.onclick = hiitPicker;
   const addBtn = document.getElementById("add-ex");
   if (addBtn) addBtn.onclick = () => {
     const ex = { id: uid(), name: "", sets: [{ reps: "", weight: "" }] };
@@ -1145,7 +1325,7 @@ function renderBackup() {
 function ask(msg, yes = "Delete") {
   return new Promise(res => {
     const bg = document.createElement("div"); bg.className = "modal-bg";
-    bg.innerHTML = `<div class="modal" role="dialog" aria-modal="true"><p></p><div class="row"><button class="wide" data-r="0">Cancel</button><button class="wide ${yes === "Delete" ? "danger-fill" : "primary"}" data-r="1"></button></div></div>`;
+    bg.innerHTML = `<div class="modal" role="dialog" aria-modal="true"><p></p><div class="row"><button class="wide" data-r="0">Cancel</button><button class="wide ${yes === "Delete" || yes === "End" ? "danger-fill" : "primary"}" data-r="1"></button></div></div>`;
     bg.querySelector("p").textContent = msg; bg.querySelector('[data-r="1"]').textContent = yes;
     const done = v => { bg.remove(); res(v); };
     bg.onclick = e => { if (e.target === bg) done(false); };
