@@ -201,6 +201,11 @@ textarea:focus { border-color: var(--accent); }
 .max-row > div > b { color: #fbbf24; }
 .max-guide { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 13px; margin-top: 2px; font-variant-numeric: tabular-nums; }
 .max-guide b { color: #fde68a; }
+#chart-card .seg button { white-space: nowrap; font-size: 14px; padding: 0 4px; }
+.max-row .cues-edit { white-space: nowrap; }
+.max-auto { font-size: 12px; font-weight: 600; color: #c9a54a; }
+.max-hint { margin: 6px 0 2px; font-size: 14px; color: var(--muted); }
+.link-inline { min-height: 0; padding: 0; font-size: 14px; color: #fbbf24; font-weight: 600; }
 .modal-bg { position: fixed; inset: 0; z-index: 30; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; padding: 24px; }
 .modal { background: var(--card); border: 1px solid var(--line); border-radius: 18px; padding: 20px; width: 100%; max-width: 360px; }
 .modal p { margin: 0 0 18px; font-size: 18px; font-weight: 600; text-wrap: balance; }
@@ -254,12 +259,15 @@ const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;"
 const hasMin = s => s.min != null && s.min !== "";
 const CARDIO_RE = /\b(cardio|run|running|jog|jogging|treadmill|bike|biking|cycling|cykel|spinning|elliptical|cross ?trainer|stairmaster|stairs?|walk|walking|rowing machine|rower|erg|swim|swimming|jump rope|skipping|hiit|löpning|löpband|promenad|simning)\b/;
 const isTimed = e => e.kind ? e.kind === "time" : CARDIO_RE.test(norm(e.name));
-const maxOf = name => num((db.maxes || {})[norm(name)]);
+const epley = (w, r) => w > 0 && r > 0 && r <= 12 ? (r === 1 ? w : w * (1 + r / 30)) : 0;
+const manualMax = name => num((db.maxes || {})[norm(name)]);
+const maxOf = name => manualMax(name) || est1RM(name);
 const pctOf = (s, max) => max > 0 && num(s.weight) > 0 ? Math.round(num(s.weight) / max * 100) : 0;
 const fmtSetP = (s, max) => { const p = pctOf(s, max); return fmtSet(s) + (p ? ` (${p}%)` : ""); };
 const est1RM = name => {
   let best = 0;
-  sessionsOf(norm(name)).forEach(x => filledSets(x.e.sets).forEach(y => { const w = num(y.weight), r = num(y.reps); if (w > 0 && r > 0 && r <= 12) best = Math.max(best, r === 1 ? w : w * (1 + r / 30)); }));
+  if (!norm(name)) return 0;
+  sessionsOf(norm(name)).forEach(x => filledSets(x.e.sets).forEach(y => { best = Math.max(best, epley(num(y.weight), num(y.reps))); }));
   return Math.round(best * 2) / 2;
 };
 const fmtSet = s => {
@@ -288,6 +296,7 @@ const METRICS = {
   weight: { label: "Heaviest", unit: "kg", per: sets => Math.max(0, ...sets.map(s => num(s.weight))), agg: "max" },
   volume: { label: "Volume", unit: "kg", per: sets => sets.reduce((t, s) => t + num(s.reps) * num(s.weight), 0), agg: "sum" },
   reps:   { label: "Most reps", unit: "reps", per: sets => Math.max(0, ...sets.map(s => num(s.reps))), agg: "max" },
+  e1rm:   { label: "Est. 1RM", unit: "kg", per: sets => Math.round(Math.max(0, ...sets.map(s => epley(num(s.weight), num(s.reps)))) * 2) / 2, agg: "max" },
   minutes: { label: "Minutes", unit: "min", per: sets => sets.reduce((t, s) => t + num(s.min), 0), agg: "sum" }
 };
 const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
@@ -345,7 +354,7 @@ function chartHtml(key) {
   const metric = curMetric = anyTime ? "minutes" : anyWeight ? (prefs.metric || "weight") : "reps";
   const group = prefs.group, m = METRICS[metric];
   const pts = chartPoints(key, metric, group);
-  const metricBtns = (anyTime ? ["minutes"] : anyWeight ? ["weight", "volume", "reps"] : ["reps"])
+  const metricBtns = (anyTime ? ["minutes"] : anyWeight ? ["weight", "e1rm", "volume", "reps"] : ["reps"])
     .map(k => `<button data-metric="${k}" class="${k === metric ? "on" : ""}">${METRICS[k].label}</button>`).join("");
   const groupBtns = [["day", "Day"], ["month", "Month"], ["year", "Year"]]
     .map(([k, l]) => `<button data-group="${k}" class="${k === group ? "on" : ""}">${l}</button>`).join("");
@@ -361,7 +370,7 @@ function chartHtml(key) {
         <div><small>Change</small><b class="${d > 0 ? "up" : d < 0 ? "down" : ""}">${d > 0 ? "+" : ""}${fmtNum(d)}</b></div>
       </div>`;
   }
-  const note = { weight: "heaviest set", volume: group === "day" ? "reps × kg, all sets" : `reps × kg, total per ${group}`, reps: "most reps in one set", minutes: group === "day" ? "total minutes" : `total minutes per ${group}` }[metric];
+  const note = { weight: "heaviest set", volume: group === "day" ? "reps × kg, all sets" : `reps × kg, total per ${group}`, reps: "most reps in one set", e1rm: "estimated from weight × reps", minutes: group === "day" ? "total minutes" : `total minutes per ${group}` }[metric];
   return `<div class="card" id="chart-card">
     <div class="seg" style="margin-bottom:8px">${metricBtns}</div>
     <div class="seg">${groupBtns}</div>
@@ -504,9 +513,9 @@ function showCheck(w) {
 }
 function maxHtml(name) {
   if (!norm(name)) return "";
-  const m = maxOf(name);
-  if (!m) return `<button class="ghost max-add" data-act="max">💪 Set your max (1RM) to see % per set</button>`;
-  return `<div class="max-row"><div><b>💪 Max ${fmtNum(m)} kg</b><div class="max-guide">${[60, 70, 80, 90].map(p => `<span>${p}% <b>${fmtNum(Math.round(m * p / 100 * 2) / 2)}</b></span>`).join("")}</div></div><button class="ghost cues-edit" data-act="max">Edit</button></div>`;
+  const own = manualMax(name), m = own || est1RM(name);
+  if (!m) return `<div class="max-hint">💪 Log a set with weight and reps and your max (1RM) is estimated automatically. <button class="ghost link-inline" data-act="max">Enter my own</button></div>`;
+  return `<div class="max-row"><div><b>💪 ${own ? "Max" : "Est. max"} ${fmtNum(m)} kg</b>${own ? "" : `<span class="max-auto"> auto</span>`}<div class="max-guide">${[60, 70, 80, 90].map(p => `<span>${p}% <b>${fmtNum(Math.round(m * p / 100 * 2) / 2)}</b></span>`).join("")}</div></div><button class="ghost cues-edit" data-act="max">${own ? "Edit" : "Set own"}</button></div>`;
 }
 function cuesFor(name) { const own = (db.cues || {})[norm(name)]; return own && own.length ? { list: own, own: true } : (builtinCues(name) ? { list: builtinCues(name), own: false } : null); }
 function cuesHtml(name) {
@@ -816,7 +825,8 @@ function renderLog() {
       const j = +row.dataset.set;
       row.querySelectorAll("input").forEach(inp => inp.addEventListener("input", () => {
         ex.sets[j][inp.dataset.f] = inp.value.replace(",", ".").trim(); markStart(); save();
-        const pt = row.querySelector(".pct"); if (pt) { const v = pctOf(ex.sets[j], maxOf(ex.name)); pt.textContent = v ? v + "%" : ""; }
+        const mw = card.querySelector(".max-wrap"); if (mw && !manualMax(ex.name)) { mw.innerHTML = maxHtml(ex.name); const b2 = mw.querySelector('[data-act="max"]'); if (b2) b2.onclick = card._maxClick; }
+        card.querySelectorAll(".set").forEach(r2 => { const pt = r2.querySelector(".pct"); if (pt) { const v = pctOf(ex.sets[+r2.dataset.set], maxOf(ex.name)); pt.textContent = v ? v + "%" : ""; } });
       }));
       row.querySelector('[data-act="del-set"]').onclick = async () => {
         const s = ex.sets[j];
@@ -830,16 +840,17 @@ function renderLog() {
       save(); render(); const c = app.querySelector(".open-card"); if (c) c.scrollIntoView({ block: "center" });
     });
     const mx = card.querySelector('[data-act="max"]');
-    if (mx) mx.onclick = async () => {
+    card._maxClick = async () => {
       ex.name = ex.name.trim(); if (!ex.name) return toast("Name the exercise first");
-      const e1 = est1RM(ex.name), curMax = maxOf(ex.name);
-      const v = await askText(`Your max (1RM) for ${ex.name}, in kg${e1 && !curMax ? `. Estimated from your sets: about ${fmtNum(e1)} kg` : ""}. Leave empty to remove.`, curMax ? String(curMax) : e1 ? String(e1) : "", "Save max");
+      const e1 = est1RM(ex.name), curMax = manualMax(ex.name);
+      const v = await askText(`Your max (1RM) for ${ex.name}, in kg.${e1 ? ` Estimated from your sets: ${fmtNum(e1)} kg.` : ""} Leave empty to use the automatic estimate.`, curMax ? String(curMax) : "", "Save max");
       if (v == null) return;
       const m = parseFloat(v.replace(",", "."));
       db.maxes = db.maxes || {};
       if (m > 0) db.maxes[norm(ex.name)] = Math.round(m * 10) / 10; else delete db.maxes[norm(ex.name)];
       save(); render(); const c = app.querySelector(".open-card"); if (c) c.scrollIntoView({ block: "center" });
     };
+    if (mx) mx.onclick = card._maxClick;
     card.querySelector('[data-act="done"]').onclick = () => { closeOpen(); render(); window.scrollTo(0, 0); };
     card.querySelector('[data-act="add-set"]').onclick = () => {
       const prev = ex.sets[ex.sets.length - 1];
